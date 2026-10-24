@@ -12,6 +12,15 @@ namespace WindBot.Game
         public Duel Duel { get; private set; }
         public Executor Executor { get; set; }
 
+        /// <summary>
+        /// True while the server is asking a yes/no activation question for an effect that just
+        /// triggered (MSG_SELECT_EFFECTYN); false for chain, idle command and battle queries.
+        /// A card can expose two effects with identical (or missing) descriptions - for example a
+        /// triggered "when drawn" effect and an ignition effect of the same card - so the kind of
+        /// question being asked is the only reliable way to tell them apart.
+        /// </summary>
+        public bool SelectingEffectYn { get; private set; }
+
         private Dialogs _dialogs;
 
         // record activated count to prevent infinite actions
@@ -270,6 +279,7 @@ namespace WindBot.Game
         {
             _pendingAttacker = null;
             _pendingAttackTarget = null;
+            SelectingEffectYn = false;
 
             foreach (CardExecutor exec in Executor.Executors)
             {
@@ -490,6 +500,7 @@ namespace WindBot.Game
         /// <returns>Index of the activated card or -1.</returns>
         public int OnSelectChain(IList<ClientCard> cards, IList<int> descs, IList<bool> forces, int timing = -1)
         {
+            SelectingEffectYn = false;
             Executor.OnSelectChain(cards);
             foreach (CardExecutor exec in Executor.Executors)
             {
@@ -570,6 +581,7 @@ namespace WindBot.Game
         /// <returns>True for yes, false for no.</returns>
         public bool OnSelectEffectYn(ClientCard card, int desc)
         {
+            SelectingEffectYn = true;
             foreach (CardExecutor exec in Executor.Executors)
             {
                 if (ShouldExecute(exec, card, ExecutorType.Activate, desc))
@@ -586,6 +598,7 @@ namespace WindBot.Game
         public MainPhaseAction OnSelectIdleCmd(MainPhase main)
         {
             _selectingPendulumSummon = false;
+            SelectingEffectYn = false;
             CheckSurrender();
             foreach (CardExecutor exec in Executor.Executors)
             {
