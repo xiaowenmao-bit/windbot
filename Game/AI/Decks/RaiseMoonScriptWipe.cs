@@ -186,6 +186,44 @@ public static class RaiseMoonScriptWipe
 		return res;
 	}
 
+	// ===== 「能不能无效『效果的发动』」=====
+	// ★ v6.36 用户口径（replay「2026-10-30 02-54-42」）：
+	//   「当对方场上有能无效怪兽效果发动（包括能无效卡的效果的发动的）的卡时，
+	//     陨石不要发动解放效果，会被白白破坏掉。」
+	//   陨石（27204311）是**手牌发动的怪兽效果**，会被这类卡直接无效并破坏/送去墓地：
+	//     · 神之通告（40605147）、朱光 / 绿光之宣告者（17266660 / 21074344）……
+	//   共同特征是 `Duel.NegateActivation(ev)`（无效**发动**，不是无效效果）。
+	//   `EFFECT_NEGATE_ACTIVATE` 是同一件事的另一种写法，一起认。
+	//   不认 `EFFECT_NEGATE_EFFECT`（无限泡影那种只无效效果、不停发动，而且只能指场上怪，
+	//   陨石在手牌发动它够不到）。
+	private static readonly Regex NegateActivationRx = new Regex(
+		@"Duel\.NegateActivation\s*\(|EFFECT_NEGATE_ACTIVATE", RegexOptions.Compiled);
+
+	private static readonly Dictionary<int, bool> NegateActivateCache = new Dictionary<int, bool>();
+
+	public static bool NegatesActivation(int cardId)
+	{
+		bool cached;
+		if (NegateActivateCache.TryGetValue(cardId, out cached)) return cached;
+
+		// 读不到脚本 → 按「不会无效」处理。这条判据是**压制我方动作**的闸门，
+		// 读不到就放行比读不到就拦住更安全（后者会让陨石永远不敢发）。
+		bool res = false;
+		try
+		{
+			string path = ScriptPath(cardId);
+			if (path != null)
+				res = NegateActivationRx.IsMatch(File.ReadAllText(path));
+		}
+		catch
+		{
+			res = false;
+		}
+
+		NegateActivateCache[cardId] = res;
+		return res;
+	}
+
 	// ===== 「会不会从手牌特殊召唤」=====
 	// 辉煌 ① 拉千金大奖的前提之一（v5.76）：对方这一手是从手牌特招怪兽。
 	// 千金 ②（c9484285 的 e3 / `s.tdcon2`）判的是
@@ -199,10 +237,8 @@ public static class RaiseMoonScriptWipe
 	private static readonly Regex SpecialSummonRx = new Regex(
 		@"Duel\.SpecialSummon\s*\(", RegexOptions.Compiled);
 
-	// ★ v6.00：补上 `GetMatchingGroup` / `GetMatchingGroupCount` —— 堆墓、回收类脚本常用
-	//   `Duel.GetMatchingGroup(filter,tp,LOCATION_GRAVE,...)` 这种写法，漏掉就查不到来源区域。
 	private static readonly Regex SelectCallRx = new Regex(
-		@"Duel\.(?:SelectMatchingCard|SelectCard|SelectTarget|SelectWithSummon|GetMatchingCard|GetMatchingGroup|GetMatchingGroupCount|IsExistingMatchingCard)\s*\(",
+		@"Duel\.(?:SelectMatchingCard|SelectCard|SelectTarget|SelectWithSummon|GetMatchingCard|IsExistingMatchingCard)\s*\(",
 		RegexOptions.Compiled);
 
 	private static readonly Regex HandLocationRx = new Regex(
@@ -237,10 +273,8 @@ public static class RaiseMoonScriptWipe
 		return res;
 	}
 
-	// 把每个 `Duel.SelectXxx(` / `Duel.GetMatchingGroup(` 的括号内容取出来，
-	// 看位置参数里有没有指定的区域 token（LOCATION_HAND / LOCATION_DECK / ...）。
-	// ★ v6.00：从「只认 LOCATION_HAND」泛化成带参数 —— 朔的三条新判据要复用同一套解析。
-	private static bool SelectArgsContain(string text, string token)
+	// 把每个 `Duel.SelectXxx(` 的括号内容取出来，看位置参数里有没有 LOCATION_HAND
+	private static bool SelectArgsMentionHand(string text)
 	{
 		foreach (Match m in SelectCallRx.Matches(text))
 		{
@@ -258,183 +292,10 @@ public static class RaiseMoonScriptWipe
 			if (i <= text.Length && i > start)
 			{
 				string args = text.Substring(start, i - start);
-				if (args.IndexOf(token, StringComparison.Ordinal) >= 0) return true;
+				if (args.IndexOf("LOCATION_HAND", StringComparison.Ordinal) >= 0) return true;
 			}
 		}
 		return false;
-	}
-
-	private static bool SelectArgsMentionHand(string text)
-	{
-		return SelectArgsContain(text, "LOCATION_HAND");
-	}
-
-	// ===== 「这张卡发动的那一手本身会不会检索」（v6.07）=====
-	// 用途：场地 / 永续 / 装备 / 灵摆这类卡，**发动**那一手通常只是把卡摆到场上，
-	// 检索写在它之后的起动效果里（「炎王的孤岛」②）。但确实有少数是「发动时就检索」，
-	// 那一手会触发朔的持续抽卡，必须跟。
-	// 判据：找到脚本里 `EFFECT_TYPE_ACTIVATE` 那个 effect 块，
-	//   取它 `SetTarget(...)` / `SetOperation(...)` 指向的函数，看函数体里有没有「加入手卡」的痕迹。
-	//   读不到 / 解析失败 → 返回 false（按「发动时不检索」处理，保守）。
-	private static readonly Regex TargetOpRx = new Regex(
-		@"Set(?:Target|Operation)\s*\(\s*([\w\.]+)\s*\)", RegexOptions.Compiled);
-
-	private static readonly Dictionary<int, bool> ActSearchCache = new Dictionary<int, bool>();
-
-	public static bool ActivationSearches(int cardId)
-	{
-		bool cached;
-		if (ActSearchCache.TryGetValue(cardId, out cached)) return cached;
-
-		bool res = false;
-		try
-		{
-			string path = ScriptPath(cardId);
-			if (path != null)
-			{
-				string t = File.ReadAllText(path);
-				int act = t.IndexOf("EFFECT_TYPE_ACTIVATE", StringComparison.Ordinal);
-				if (act >= 0)
-				{
-					int start = t.LastIndexOf("Effect.CreateEffect", act, StringComparison.Ordinal);
-					if (start < 0) start = 0;
-					int next = t.IndexOf("Effect.CreateEffect", act, StringComparison.Ordinal);
-					string block = next > act ? t.Substring(start, next - start) : t.Substring(start);
-
-					foreach (Match m in TargetOpRx.Matches(block))
-					{
-						string fn = m.Groups[1].Value;
-						Match body = Regex.Match(t,
-							@"function\s+" + Regex.Escape(fn) + @"\s*\([^)]*\)(.*?)\nend",
-							RegexOptions.Singleline);
-						if (body.Success && SearchRx.IsMatch(body.Groups[1].Value))
-						{
-							res = true;
-							break;
-						}
-					}
-				}
-			}
-		}
-		catch
-		{
-			res = false;
-		}
-
-		ActSearchCache[cardId] = res;
-		return res;
-	}
-
-	// ===== 「卡组特招 / 卡组送墓 / 非卡组的卡加入手卡」（v6.00）=====
-	// 朔的持续抽卡（c47605577 e1 op=1）只认 `s.cfilter` =「对方的卡加入手卡」且不是抽卡理由，
-	// 来源不限。于是：
-	//   · 卡组特招 / 卡组堆墓 → 一张卡都不进手 → 触发不了，别跟；
-	//   · 墓地回收 / 场上回手 / 除外回收 → **会触发**，要跟。
-	private static readonly Regex SendToGraveRx = new Regex(
-		@"Duel\.SendtoGrave\s*\(", RegexOptions.Compiled);
-
-	private static readonly Regex ToHandRx = new Regex(
-		@"CATEGORY_TO_HAND|CATEGORY_ADD_TO_HAND|HINTMSG_ATOHAND|Card\.IsAbleToHand|Duel\.SendtoHand\s*\(",
-		RegexOptions.Compiled);
-
-	private static readonly Dictionary<int, int> SquizDeckCache = new Dictionary<int, int>();
-	private const int SquizDeckSS = 1;       // 从卡组特招
-	private const int SquizDeckGrave = 2;    // 从卡组送墓
-	private const int SquizNonDeckHand = 4;  // 非卡组来源的「加入手卡」
-
-	private static int SquizDeckFlags(int cardId)
-	{
-		int cached;
-		if (SquizDeckCache.TryGetValue(cardId, out cached)) return cached;
-
-		int f = 0;
-		try
-		{
-			string path = ScriptPath(cardId);
-			if (path != null)
-			{
-				string t = File.ReadAllText(path);
-				bool deck = SelectArgsContain(t, "LOCATION_DECK");
-				if (deck && SpecialSummonRx.IsMatch(t)) f |= SquizDeckSS;
-				if (deck && SendToGraveRx.IsMatch(t)) f |= SquizDeckGrave;
-				// 有「加入手卡」的痕迹，但选卡来源里没有卡组 → 就是回收类
-				if (!deck && ToHandRx.IsMatch(t)) f |= SquizNonDeckHand;
-			}
-		}
-		catch
-		{
-			f = 0;   // 读不到脚本 → 一律当「不是」，保持「非检索不跟」的老行为
-		}
-
-		SquizDeckCache[cardId] = f;
-		return f;
-	}
-
-	// 这张卡会不会「从卡组特殊召唤」
-	public static bool SpecialSummonsFromDeck(int cardId)
-	{
-		return (SquizDeckFlags(cardId) & SquizDeckSS) != 0;
-	}
-
-	// 这张卡会不会「把卡从卡组送去墓地」
-	public static bool SendsDeckToGrave(int cardId)
-	{
-		return (SquizDeckFlags(cardId) & SquizDeckGrave) != 0;
-	}
-
-	// ★ v6.38：这张卡会不会「把怪兽特殊召唤」（不限来源）—— 增殖的G 的连锁判据用。
-	//   脚本里出现 `Duel.SpecialSummon(` 就算（融合/同调/超量那种「卡的召唤」不会写这一句，
-	//   但 G 只管「效果特招」，正好对上）。
-	private static readonly Dictionary<int, bool> AnySsCache = new Dictionary<int, bool>();
-
-	public static bool HasSpecialSummonEffect(int cardId)
-	{
-		bool cached;
-		if (AnySsCache.TryGetValue(cardId, out cached)) return cached;
-
-		bool res = false;
-		try
-		{
-			string path = ScriptPath(cardId);
-			if (path != null) res = SpecialSummonRx.IsMatch(File.ReadAllText(path));
-		}
-		catch { res = false; }
-		AnySsCache[cardId] = res;
-		return res;
-	}
-
-	// ★ v6.23：这张卡会不会「从额外卡组把怪兽特招」（融合 / 同调 / 超量 / 连接 以外的
-	//   「效果特招」，比如「从额外卡组把 1 只怪兽特殊召唤」）。欢聚友伴·雀（フワロス）管的就是这一类。
-	private static readonly Dictionary<int, bool> ExtraSsCache = new Dictionary<int, bool>();
-
-	public static bool SpecialSummonsFromExtra(int cardId)
-	{
-		bool cached;
-		if (ExtraSsCache.TryGetValue(cardId, out cached)) return cached;
-
-		bool res = false;
-		try
-		{
-			string path = ScriptPath(cardId);
-			if (path != null)
-			{
-				string t = File.ReadAllText(path);
-				res = SpecialSummonRx.IsMatch(t) && SelectArgsContain(t, "LOCATION_EXTRA");
-			}
-		}
-		catch
-		{
-			res = false;
-		}
-
-		ExtraSsCache[cardId] = res;
-		return res;
-	}
-
-	// 这张卡会不会把卡「从墓地 / 场上 / 除外区加入手卡」（不含从卡组检索）
-	public static bool TakesNonDeckToHand(int cardId)
-	{
-		return (SquizDeckFlags(cardId) & SquizNonDeckHand) != 0;
 	}
 
 	// 这张卡是不是「吃墓地」的效果 —— 屋敷童（73642296）的打击面：
@@ -509,6 +370,31 @@ public static class RaiseMoonScriptWipe
 
 		Cache[cardId] = flags;
 		return flags;
+	}
+
+	// ★ v6.26：这张卡（任意一个效果）会不会「把怪兽特殊召唤」。
+	//   只给「自己回合能不能跟增殖的G」做粗筛用 —— 用户口径是「自己回合只有对方发动特招效果才连锁」。
+	//   整卡粒度：分不出这一环具体是哪个效果，同一张卡既有检索又有特招时会误判（已知短板）。
+	private static readonly Dictionary<int, bool> AnySsCache = new Dictionary<int, bool>();
+
+	public static bool HasSpecialSummonEffect(int cardId)
+	{
+		bool cached;
+		if (AnySsCache.TryGetValue(cardId, out cached)) return cached;
+
+		bool res = false;
+		try
+		{
+			string path = ScriptPath(cardId);
+			if (path != null) res = SpecialSummonRx.IsMatch(File.ReadAllText(path));
+		}
+		catch
+		{
+			res = false;
+		}
+
+		AnySsCache[cardId] = res;
+		return res;
 	}
 
 	private static string ScriptPath(int cardId)

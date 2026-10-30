@@ -472,10 +472,14 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// 额外·R7
 		public const int Jackpot = 73090586;    // 天·西艾萝-一掷乾坤（魔法师族 LIGHT R7，必须 EX 区）
 		public const int Bounty = 9484285;      // 望·斯奎兹-千金大奖（机械族 LIGHT R7，斩杀基底）
+		public const int Chersib = 94503794;      // 漆梏之食兽（DARK R7×2+，700/2500）：对「通常·速攻魔法」卡组（闪刀 / 光与暗的仪式）
 		// ★ v5.11：征霸龙已被换出卡组（用户改用斩杀线上的重铠光子龙拆场地），执行器保留备用 ——
 		//   `ExtraDeck.Any` 那关永远不过，所以不会误出。
+		public const int BlazeDragon = 47132793;
+		public const int ChaosAtlandis = 6387204; // 混沌No.6 大西洲巨人（LIGHT R7×3，3300/3300）：解 ≤3200 攻的抗性怪
 		public const int Omega7 = 6195332;        // 托勒密星团Ω7（LIGHT R7×3，2700/2700）：拔 N 弹 N 只怪兽
 		public const int Utopia76 = 92015800;     // No.76 谐调光师（LIGHT R7×2，2700/2100）：对墓地卡组
+		public const int BigEye = 80117527;       // No.11 巨眼（DARK R7×2，2600/2000）：夺取对方高价值怪兽
 
 		// 额外·斩杀线
 		public const int Irisfil = 64626565;    // 黑智天至 伊里斯斐尔 R8 ATK800（①本回合我方超量攻击力 + 自身阶级×100）
@@ -489,6 +493,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		//   这样就不用再占一张额外去当「拆场地」的专职卡了。
 		public const int PhotonArmor = 39030163;
 		// ★ v5.11 起不在卡组（被重铠替换），执行器保留备用
+		public const int Antimatter = 92517928; // 银河眼反物质龙 R9 ATK4000（①战伤减半，②拔 1 可对怪兽攻击 2 次）
 		public const int Zeus = 90448279;       // 天霆号 阿宙斯 R12 ATK3000
 
 		// 手坑 / 单卡
@@ -502,8 +507,8 @@ public class RaiseMoonExecutor : DefaultExecutor
 		public const int Veiler = 97268402;      // 效果遮蒙者 ×3
 		public const int SpeedroidTerrortop = 53932291; // 疾行机人 竹蜻蜓电子人（对方泛用展开件，不给遮蒙者）
 		public const int Burial = 35726888;      // 愚蠢的副葬 ×2：卡组送 1 张魔陷进墓
-		public const int Jellyfish = 84192580;  // 欢聚友伴·抖抖海月水母（我方 side 也会换进来）
-		// ===== v6.24 side 卡 =====
+		public const int InfiniteImpermanence = 10045474; // 无限泡影：盖放发动后整列魔陷被无效
+		public const int Jellyfish = 84192580;  // 欢聚友伴·抖抖海月水母：升月从手牌把怪兽特殊召唤时，对方抽2
 		public const int Nibiru = 27204311;     // 原始生命态 尼比鲁（陨石）：对方本回合召唤/特招 ≥5 只 → 解放双方前场
 
 		// ===== v5.91 新构筑（盈彩月夜.ydk）新增 =====
@@ -537,6 +542,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 	// 反物质龙 ②：拔掉的素材是怪兽时，会问「要不要再从卡组送 1 只同种族怪兽进墓」
 	// （脚本里是 Duel.SelectYesNo(tp, aux.Stringid(id,2)) → MSG_SELECT_YESNO，desc 就是这个值）。
+	private const int DescAntimatterDump = (CardId.Antimatter << 4) | 2;
 
 	// ★ v5.55：辉煌 ① 的可选追加处理「那之后，可以让自己墓地的『盈彩月夜』卡全部回到卡组」。
 	//   c9362643.lua 的 s.activate 里是 `Duel.SelectYesNo(tp, aux.Stringid(id,2))` ——
@@ -564,6 +570,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		private bool _returnHandToTop;      // true = 把挑中的卡放到卡组最上面（抽回来触发自跳）
 		private bool _cityWaitJackpotLogged; // v5.23：为了等大姐而暂缓② 的日志只打一次
 	private bool _jackpotWaitLogged;     // ★ v5.62：「主阶 1 先不叠大姐」的日志每回合只打一次
+	private bool _r7NoFlipLogged;        // ★ v5.98：针对性 R7「不转攻击」的理由每回合只打一次（否则每次 idle 都刷）
 	private int _splendorTarget;        // 辉煌① 要拉的卡号：0 = 未指定（走默认），否则指定 cardId
 	private bool _splendorOwnUsed;      // 本回合（自己回合）已用掉辉煌
 	private bool _splendorOppUsed;      // 本回合（对方回合）已用掉辉煌
@@ -647,6 +654,14 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//       → 群星优先置顶「对方回合能干扰」的本家（菈碧 / 希耶娜 / 库露雪 / 帐），
 	//         等对方回合登场怪兽 / 发动永续魔陷后用二速抽卡抽到并自跳干扰。
 	private bool _jellyfish;            // 本回合对方已发动水母（效果未过期）→ 我方从手牌召唤/特招会让对方抽 1
+	// ★ v6.33 用户口径（replay「2026-10-30 02-17-06.yrp」，2026-10-30 02:24）：
+	//   「对方如果丢 1 水母的话，那还可以跳一下西艾萝抽 1；对方丢 2 水母，
+	//     那就不要再做任何从手牌召唤特殊召唤怪兽的动作了。」
+	//   水母是**同名卡可以叠着丢**的手坑，每张各挂一条「我方从手牌上 1 只怪 → 对方抽 1」——
+	//   2 张就是每跳 1 只送它抽 2，本家「被抽到时自跳」那一整套全部变成净亏。
+	//   ⇒ 计数 ≥2 时**硬停**（不看场面够不够用），1 张时维持原来的「铺到够用就停」。
+	//   注意：这条**只管从手牌上怪**（自跳 / 通召 / 盖怪），管不到「叠超量」和「从额外特招」。
+	private int _jellyfishCount;        // 本回合对方发动水母的张数（同名卡每张各挂一条效果）
 	// ★ v5.46 用户口径：增殖的 G（23434538）也要同一套妥协。
 	//   与水母的关键差别：水母只惩罚「从手牌」的召唤 / 特招，增殖的 G 惩罚**一切特殊召唤**
 	//   （手牌 / 卡组 / 墓地 / 额外卡组都算），但**不碰通常召唤**。
@@ -703,12 +718,17 @@ public class RaiseMoonExecutor : DefaultExecutor
 		&& (Bot.GetMonsters().Any(c => c != null && c.IsCode(CardId.Jackpot))
 			|| Bot.GetMonstersInMainZone().Count(c => c != null && c.IsFaceup()
 				&& ArchetypeL7.Contains(c.Id) && !c.HasType(CardType.Xyz)) >= 2);
-	// 停铺闸门 = 原 hold 模式 ∪ 场面已够用。两套条件互不重叠：
-	//   hold 是「大姐还没出、手里有陷阱辉煌」；boardSet 是「大姐已出 / 已铺够 2 只本家」。
-	private bool _jellyfishFreeze => _holdMode || _jellyfishBoardSet;
+	// 停铺闸门 = 原 hold 模式 ∪ 场面已够用 ∪ 水母叠了 2 张（硬停）。
+	//   hold 是「大姐还没出、手里有陷阱辉煌」；boardSet 是「大姐已出 / 已铺够 2 只本家」；
+	//   hardStop 是「对方叠了 ≥2 张水母 —— 连第 1 只都不值得跳」（v6.33）。
+	private bool _jellyfishFreeze => _holdMode || _jellyfishBoardSet || _jellyfishHardStop;
+	// ★ v6.33：对方叠了 ≥2 张水母 → 本回合**一只都不从手牌上**。
+	private bool _jellyfishHardStop => _jellyfishCount >= 2;
 	private string JellyfishFreezeWhy()
 	{
 		if (_holdMode) return "（手牌有陷阱辉煌 → 只盖它（有群星则置顶），其余动作一律不做，等对方回合用辉煌拉大姐）";
+		if (_jellyfishHardStop) return "（对方叠了 " + _jellyfishCount + " 张水母 → 每从手牌上 1 只就送它抽 "
+			+ _jellyfishCount + "，本回合一只都不上，只做不特招的抽卡）";
 		if (_jellyfishBoardSet) return "（大姐已在场 / 本家已有 2 只 → 再跳只是送对方抽 1）";
 		return "";
 	}
@@ -885,57 +905,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 	private int _albionSetTurn = -1;
 	private int _ecclesiaUsedTurn = -1;
 	private bool _ecclesiaSkipLogged;      // 黑龙 ②「没有值得处理的目标」每回合只打一行
-	// ★ v6.20：本回合已经通召过卡萝尔（「通召后 ③ 抽 1」这条退路已经用掉了）
-	private int _carolNsTurn = -1;
-	private int _zeusSkipLoggedTurn = -1;   // v6.36：天霆号「为什么不叠」的解释每回合只打一行
-
-	// ===== v6.45 台词系统 =====
-	// 用户口径：14 个触发场景各说一句。同一条台词整局只发一次（`_said` 去重），
-	// 否则抽卡类台词会刷屏。
-	private readonly HashSet<string> _said = new HashSet<string>();
-	private int _drawSelfTurn = -1, _drawSelfCount;   // 自己回合抽卡次数
-	private int _drawOppTurn = -1, _drawOppCount;     // 对方回合抽卡次数
-	private DateTime _lastEnemyMove = DateTime.Now;   // 对方最后一次动作（⑭ 用）
-
-	private void Say(string key, string text)
-	{
-		if (_said.Contains(key)) return;
-		_said.Add(key);
-		try { AI.Game.Chat(text); } catch { }
-		Log("台词[" + key + "] " + text);
-	}
-
-	// 每发生一次「我方抽卡」就调一次（挂在各抽卡入口），按回合分开计数。
-	private void CountDraw()
-	{
-		if (Duel.Player == 1)
-		{
-			if (_drawOppTurn != Duel.Turn) { _drawOppTurn = Duel.Turn; _drawOppCount = 0; }
-			_drawOppCount++;
-			if (_drawOppCount >= 2) Say("drawOpp", "我还能抽卡，气不气");
-		}
-		else
-		{
-			if (_drawSelfTurn != Duel.Turn) { _drawSelfTurn = Duel.Turn; _drawSelfCount = 0; }
-			_drawSelfCount++;
-			if (_drawSelfCount >= 3) Say("drawSelf", "牌好多啊，不知道怎么打了");
-		}
-	}
-
-	// 弹卡类台词（刃 / 灯 / 千金 / 托勒密通用）：回合内 / 回合外两套。
-	private void SayBounce(string who)
-	{
-		if (Duel.Player == 0) Say("bounceSelf", "我给你清光光～给你清光光～");
-		else Say("bounceOpp", "哇哦，这是你高贵的动点吗，啪嗒～没～有～了～哦～");
-	}
-	private bool _sideBoardUsed;   // v6.24：side 卡（飓风 / 羽毛扫）本局用过，仅日志用
-	// ★ v6.10：本回合「打过架」的我方怪兽（攻击宣言时记）。
-	//   天霆号的替代召唤条件是「在**超量怪兽进行过战斗的回合**，也能在自己场上的超量怪兽上面重叠」——
-	//   主阶 2 判断某只基底能不能叠，就必须知道它这回合到底打过没有。
-	//   不能用 `ClientCard.Attacked`：那个字段在 `GameBehavior.OnNewPhase` 里**每个阶段开头都会重置**，
-	//   进到主阶 2 时已经全是 false 了。
-	private int _attackedTurn = -1;
-	private readonly List<ClientCard> _attackedThisTurn = new List<ClientCard>();
 	private bool _belleSkipLogged;         // 屋敷童「留着」的解释日志每回合只打一行
 	private int _albionDumpedTurn = -1;    // 白界龙 是被「哪一回合」堆下墓的（它只在那一回合的结束阶段能盖落胤与圣女）
 
@@ -977,6 +946,11 @@ public class RaiseMoonExecutor : DefaultExecutor
 	private int _drollTurn = -1;        // 小丑与锁鸟生效的回合号（-1 = 还没出现过）
 	private bool _cityDrollLogged;      // 未眠被锁鸟拦下的日志一回合只打一次
 	private bool _cityBurialLogged;     // ★ v5.43：未眠给副葬让路的日志一回合只打一次
+	// ★ v6.28：本回合未眠之城 ②（●1/●2 那条起动效果）已经用掉了。
+	//   `c72978038.lua` 的 e3 是 `SetCountLimit(1)` —— 按**玩家**一回合一次，不是按卡。
+	//   所以场上有城、手里还有第二张时，顺序必须是「先发场上那张的 ②，再铺第二张」；
+	//   反过来先铺第二张会让两张城同时在场、却只有一次抽卡名额，且 ●1 少了可洗的手牌。
+	private bool _cityUsedThisTurn;
 
 	// ★ v5.2 副葬 / 群星的顺序：先副葬堆辉煌（洗过牌）→ 再群星置顶 → 之后才允许抽卡。
 	private bool _burialUsedThisTurn;        // 本回合副葬已发动
@@ -1014,10 +988,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// ===== 1. 手牌引擎：所有本家效果一律发动 =====
 		// 引擎判断「要不要发动效果」时只看 ExecutorType.Activate（GameAI.OnSelectEffectYn）；
 		// 没注册就等于永远回答"不发动"。
-		// ★ v6.37：side 卡里的「后攻第一动作」类效果 —— **必须排在所有本家执行器之前**，
-		//   否则引擎按注册顺序问，库露雪 / 帐 / 卡萝尔 / 群星 那几条一被问就先动起来了，
-		//   飓风永远轮不到当「主要阶段 1 的第一个动作」（用户口径）。
-
 		AddExecutor(ExecutorType.Activate, CardId.Hiena, DiscardOrBounce);    // 手牌③丢弃抽1 / 场上②弹怪
 		AddExecutor(ExecutorType.Activate, CardId.Kurusu, DiscardOrBounce);   // 手牌③丢弃抽1 / 场上②弹魔陷
 		// ★ v5.42：帐（西艾萝）记进 hold 白名单 —— 用户口径「西艾萝除外，她特殊召唤到场上可以抽 1，
@@ -1106,21 +1076,22 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// ★ 顺序就是优先级 —— GameAI 按注册顺序遍历，第一个说「做」的执行器直接生效。
 		//   这几只都用了比千金大奖更苛刻的条件（素材数量 / 对手场面类型），
 		//   所以正常局面它们会自己让路，不会抢掉千金大奖的位置。
+		AddExecutor(ExecutorType.SpSummon, CardId.ChaosAtlandis, XyzChaosAtlandis); // R7×3：碾抗性大怪（当回合不能打人）
+		AddExecutor(ExecutorType.SpSummon, CardId.BigEye, XyzBigEye);               // R7×2：抢对方高价值怪兽
 		AddExecutor(ExecutorType.SpSummon, CardId.Omega7, XyzOmega7);               // R7×3：解场弹 3 / M2 压制
+		AddExecutor(ExecutorType.SpSummon, CardId.Utopia76, XyzUtopia76);           // R7×2：挖对方墓地
 		// ★ v5.10：征霸龙排在千金大奖之前 —— 它的条件（对方场上有一张值得拆的表侧魔陷/场地）成立时优先，
 		//   不成立就自动让路给千金大奖。前面四只（碾怪 / 抢怪 / 弹怪 / 挖墓）都只处理怪兽，
 		//   和它不冲突：它管的是「后场的魔法陷阱 + 场地」。
+		AddExecutor(ExecutorType.SpSummon, CardId.BlazeDragon, XyzBlazeDragon);     // R7×2：拔1 破坏对方1张（场地/永续）
+		AddExecutor(ExecutorType.SpSummon, CardId.Chersib, XyzChersib);             // R7×2：对魔法卡组 / 千金大奖用尽（已不在卡组）
 		AddExecutor(ExecutorType.SpSummon, CardId.Bounty, XyzBounty);               // 默认基底
-		// ★ v6.33 用户口径（2026-10-27）：「NO.76 优先级没这么高 —— 就算斩杀路线打不死，
-		//   也可以叠放天霆号、有 ≥4 素材呢。」⇒ 把 No.76 从 Bounty **前面**挪到**后面**：
-		//   两只 7 星先给「千金 → 黑智天至 → 光子咆哮 5300」这条线（打不死也能留 4~5 素材给 M2 的天霆号），
-		//   只有 Bounty 自己判掉（做不出、或者场面不适合）时才轮得到 No.76 挖墓。
-		AddExecutor(ExecutorType.SpSummon, CardId.Utopia76, XyzUtopia76);           // R7×2：挖对方墓地（兜底）
 
 		// ===== 6. 斩杀线：千金大奖 → 黑智天至 → 光子咆哮 → 反物质龙 → 天霆号 =====
 		// ★ 注册顺序就是叠放顺序（M2 时 Antimatter 先补一层，Zeus 再叠上去）。
 		AddExecutor(ExecutorType.SpSummon, CardId.Irisfil, IrisfilSummon);        // R7 → R8 黑智天至 800（中转）
 		AddExecutor(ExecutorType.SpSummon, CardId.PhotonRoar, PhotonRoarSummon);  // R8 → R8 光子咆哮 4500（主打点）
+		AddExecutor(ExecutorType.SpSummon, CardId.Antimatter, AntimatterSummon);  // → R9 反物质龙（v5.11 起不在卡组，保留备用）
 		AddExecutor(ExecutorType.SpSummon, CardId.PhotonArmor, PhotonArmorSummon); // v5.11 → R8 重铠（拔1 破坏对方1张表侧卡）
 		AddExecutor(ExecutorType.SpSummon, CardId.Zeus, ZeusSummon);              // → R12 天霆号（下个对方回合拔 2 清场）
 
@@ -1137,10 +1108,15 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// ===== 8. 额外怪兽自己的效果（不注册 = 永不发动）=====
 		AddExecutor(ExecutorType.Activate, CardId.Jackpot, JackpotActivate);
 		AddExecutor(ExecutorType.Activate, CardId.Bounty, BountyActivate);
+		AddExecutor(ExecutorType.Activate, CardId.BigEye, BigEyeActivate);
+		AddExecutor(ExecutorType.Activate, CardId.ChaosAtlandis, ChaosAtlandisActivate);
 		AddExecutor(ExecutorType.Activate, CardId.Omega7, OmegaActivate);
 		AddExecutor(ExecutorType.Activate, CardId.Utopia76, Utopia76Activate);
+		AddExecutor(ExecutorType.Activate, CardId.Chersib, ChersibActivate);
+		AddExecutor(ExecutorType.Activate, CardId.BlazeDragon, BlazeActivate);   // v5.10：① 拔1 → 自己+对方各破坏 1 张
 		AddExecutor(ExecutorType.Activate, CardId.Irisfil, () => true);      // ①超量召唤成功 → 全队加攻
 		AddExecutor(ExecutorType.Activate, CardId.PhotonRoar, PhotonRoarActivate); // ①登场拉光子；②无效全场一律不开
+		AddExecutor(ExecutorType.Activate, CardId.Antimatter, AntimatterActivate);
 		AddExecutor(ExecutorType.Activate, CardId.PhotonArmor, PhotonArmorActivate); // v5.11：② 拔1 破坏对方 1 张表侧卡
 		AddExecutor(ExecutorType.Activate, CardId.Zeus, ZeusActivate);
 
@@ -1164,9 +1140,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		AddExecutor(ExecutorType.Activate, CardId.Nibiru, NibiruActivate);   // 陨石（v5.2）
 		AddExecutor(ExecutorType.Activate, CardId.LockBird, UseLockBird);
 		AddExecutor(ExecutorType.Activate, CardId.MaxxC, UseMaxxC);
-		// ★ v6.23：side 局换进来的欢聚友伴（自己空场才发得出来，必须抢在铺开之前甩掉）
-
-		// ===== v6.24 side 卡 =====
 		AddExecutor(ExecutorType.Activate, CardId.Squiz, SquizActivate);
 
 		// ===== 9.5 手坑盖伏苟命（v3.8）=====
@@ -1195,10 +1168,18 @@ public class RaiseMoonExecutor : DefaultExecutor
 		AddExecutor(ExecutorType.Repos, CardId.Squiz, ReposLowAtkToDefence);
 		// v5.3：天霆号 3000/3000 守备出场的，下个自己回合要翻攻击打伤害
 		AddExecutor(ExecutorType.Repos, CardId.Zeus, ReposZeus);
-		// ★ v6.16：对方回合「菈碧 ③ 加速」出来的 R7（No.76 / 托勒密 / 巨眼 / 混沌大西洲）都是**守备落地**，
-		//   以前我方回合没有任何一条把它们翻过来 —— 对方空场时 2700 的 No.76 就那么横着站一整轮，
-		//   一点伤害都不打。翻攻打完，主阶 2 照样能叠天霆号（基底「这回合战斗过」的条件正好也满足了）。
-		AddExecutor(ExecutorType.Repos, ReposR7ToAttack);
+		// ★ v5.98 用户口径（replay 优化1）：「托勒密……如果这回合能抢战斗伤害就要转攻击，
+		//   和别的怪的战斗逻辑一样。」
+		//   ☆ 注册位置就是这条规则的命门：**必须在下面那行 GoToBattlePhase 之前**。
+		//     框架（WindBot.Game/GameAI.cs 的 idle 循环）按注册顺序单趟遍历，GoToBattle 一旦返回 true
+		//     就当场 `return ToBattlePhase`，排在它后面的 Repos 这一轮根本不会被问到。
+		//     Ω7 原先只能落到 :1154 的 DefaultMonsterRepos，正是这么被饿死的 —— 编译能过，线上永不生效。
+		//     对照：ReposPressEmptyField（上一行区，在 GoToBattle 之前）每次都能先跑，只是白名单没覆盖 R7。
+		AddExecutor(ExecutorType.Repos, CardId.Omega7, ReposR7ToAttack);
+		AddExecutor(ExecutorType.Repos, CardId.BigEye, ReposR7ToAttack);
+		AddExecutor(ExecutorType.Repos, CardId.ChaosAtlandis, ReposR7ToAttack);
+		AddExecutor(ExecutorType.Repos, CardId.Utopia76, ReposR7ToAttack);
+		AddExecutor(ExecutorType.Repos, CardId.Chersib, ReposR7ToAttack);
 		AddExecutor(ExecutorType.GoToBattlePhase, GoToBattle);
 
 		// ===== 11. 兜底 =====
@@ -1282,17 +1263,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// ★ v5.3：场上的刃/灯被无效了 → ② 弹卡照样会被无效，别浪费。
 		if (EffectNegated()) return false;
 
-		// ★ v6.13 用户口径（2026-10-27，replay 优化6）：「手牌有群星 + 库露雪能丢 1 抽卡时，
-		//   正确顺序是先群星置顶（这牌型优先西艾萝），再发动库露雪丢手抽卡。」
-		//   病根是**执行器注册顺序**：刃/灯（978/979）排在群星（1026/1029）之前，
-		//   `OnSelectIdleCmd` 按顺序逐个问，所以它会抢在置顶之前把手牌抽掉 —— 置顶那张就白压了。
-		//   只挡手牌的 ③（丢手抽卡）；① 抽到自跳是特招、不是抽卡，不受影响。
-		if (!drawSummon && Card.Location == CardLocation.Hand && HoldDrawForOrder())
-		{
-			Log("刃/灯 ③ 丢手抽卡 → 先让群星置顶（手牌有群星），置顶后再丢");
-			return false;
-		}
-
 		bool isHiena = Card.IsCode(CardId.Hiena);
 
 		// 诊断：后攻首回合第一次在手牌遇到刃/灯，把 desc 打一次。
@@ -1373,12 +1343,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//   它们特招成功时都会再弹对方 1 张（刃 → 场上打点最高的怪兽，灯 → 最有价值的魔陷），
 	//   千金若抢先把那张弹回卡组底，它们的 ② 就落空。`_bounceTarget` 已算好就直接用，
 	//   否则按同一套评估现算，保证两边挑的是同一张。
-	// ★ v6.40 / v6.41（用户 2026-10-27 让复查）：v5.80 那版唯一的真漏是——
-	//   场上同时有希耶娜和库露雪时，`hiena ? … : …` 三目只算一个，另一只的目标没被保护。
-	//   ⇒ 改成返回**列表**（两只的目标都收），千金 ② 的对象池整批剔掉。
-	//   ★ 曾经误加过「手牌也算」，已撤（用户纠正）：千金 ② 的条件是「特殊召唤的场合」，
-	//   触发时刃/灯**已经落地**，两者是同一时点的两个可选效果；手牌那张跟这一波无关。
-	private List<ClientCard> TribeBounceReserved(IList<ClientCard> candidates)
+	private ClientCard TribeBounceReserved(IList<ClientCard> candidates)
 	{
 		bool hiena = false;
 		bool kurusu = false;
@@ -1388,52 +1353,19 @@ public class RaiseMoonExecutor : DefaultExecutor
 			if (c.IsCode(CardId.Hiena)) hiena = true;
 			else if (c.IsCode(CardId.Kurusu)) kurusu = true;
 		}
-		// ★ 只扫场上：千金 ② 触发的那一刻，刃/灯**已经特招落地了**（两个效果是同一时点的两个选项），
-		//   所以它们一定在怪兽区。手牌里的那张还没跳，跟这一波弹卡无关 —— 把它算进来只会
-		//   多占一个「保留位」，让千金白白少弹一张。
-		List<ClientCard> reserved = new List<ClientCard>();
-		if (hiena)
-		{
-			ClientCard m = PickBounceMonsterTarget();
-			if (m != null) reserved.Add(m);
-		}
-		if (kurusu)
-		{
-			ClientCard s = PickBounceSpellTarget();
-			if (s != null) reserved.Add(s);
-		}
-		return reserved.Where(c => c != null && candidates.Contains(c)).ToList();
-	}
+		if (!hiena && !kurusu) return null;
 
-	// ★ v6.42 用户口径（2026-10-27，replay 优化2）：库露雪 ② 的弹卡优先级 ——
-	//   **盖卡 ＞ 具有干扰效果的永续 / 场地 / 灵摆 ＞ 其它**。
-	//   旧实现是「表侧 +10000、场地再 +500」→ 盖卡永远排最后，正好和用户要的相反。
-	//   为什么盖卡最优先：那是对方还没用的干扰（反击/永续陷阱），弹回卡组等于直接废掉一次。
-	private int BounceSpellValue(ClientCard c)
-	{
-		if (c == null) return -1;
-		if (!c.IsFaceup()) return 100;                       // ① 盖卡
-		bool cast = c.HasType(CardType.Continuous) || c.HasType(CardType.Field)
-			|| c.HasType(CardType.Pendulum);
-		if (cast && IsDisruptiveSpellTrap(c)) return 80;      // ② 有干扰效果的永续/场地/灵摆
-		if (cast) return 60;                                  // ③ 表侧的这类，但没明显干扰
-		return 20;                                            // ④ 其它魔陷
-	}
-
-	// 魔陷的「干扰性」——读卡文：能无效 / 让对方不能做某事，才算真干扰。
-	// 不认「破坏」：破坏型魔陷大多是一次性的，弹回去价值不如一张活着的贴纸。
-	private static bool IsDisruptiveSpellTrap(ClientCard c)
-	{
-		string desc = c != null && c.Data != null ? c.Data.Description : null;
-		if (string.IsNullOrEmpty(desc)) return false;
-		return desc.Contains("无效") || desc.Contains("不能");
+		ClientCard want = _bounceTarget ?? (hiena ? PickBounceMonsterTarget() : PickBounceSpellTarget());
+		if (want == null) return null;
+		return candidates.FirstOrDefault(c => c == want);
 	}
 
 	private ClientCard PickBounceSpellTarget()
 	{
 		return Enemy.GetSpells()
 			.Where(c => c != null)
-			.OrderByDescending(BounceSpellValue)
+			.OrderByDescending(c => (c.IsFaceup() ? 10000 : 0)
+				+ (c.Location == CardLocation.FieldZone ? 500 : 0))
 			.FirstOrDefault();
 	}
 
@@ -1529,10 +1461,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 				Log("帐 ③ → 群星① 置顶的那张要留给对方回合 → 这次不抽");
 				return false;
 			}
-			// ★ v6.11 用户口径（2026-10-27）：「当自己手牌有群星 + 其他任意抽 1 效果的本家，
-			//   先发动群星的置顶效果，然后发动其他的抽 1 效果。」
-			//   群星还没置顶时这一抽先压住 —— 先抽就等于抽在置顶之前，置顶那张白压。
-			if (HoldDrawForOrder()) return false;
 			Log("帐 ③ 自己回合抽1");
 			_sieroDrewTurn = Duel.Turn;   // ★ v5.96
 			return true;
@@ -1729,27 +1657,10 @@ public class RaiseMoonExecutor : DefaultExecutor
 	private bool PreferJackpotOnAccel()
 	{
 		if (_goingFirst >= 0) return false;          // 只对后攻局
+		if (_bountyBouncedTurn <= 0) return false;   // 本局还没用千金弹过卡
 		if (HasSpellcasterXyz()) return false;
 		if (FreeEmzCount() == 0) return false;
-		if (!Bot.ExtraDeck.Any(c => c.IsCode(CardId.Jackpot))) return false;
-
-		// ★ v5.98 用户口径（replay 优化4.yrp，2026-10-27 11:33）：
-		//   「升月后攻的对方回合，当手牌有未眠之城时，菈碧加速的对象优先是大姐。」
-		//   依据 `c72978038.lua` 的 e3 / `s.cfilter`：未眠之城 ② 的 ●2（无代价抽 1）要求
-		//   「自己场上存在**魔法师族·本家·超量**怪兽」——
-		//     大姐（一掷乾坤 73090586，魔法师族 R7）一落地，手里那张城铺下去就能白抽 1；
-		//     千金大奖（斯奎兹 9484285，**机械族**）喂不到这条。
-		//   ⇒ 手里有城时，加速大姐等于「多站一只 2100」+「城立刻换 1 张牌」，比拔 2 弹 2 更赚。
-		bool cityInHand = Bot.Hand.Any(c => c != null && c.IsCode(CardId.City));
-		if (cityInHand)
-		{
-			Log("翼③ 加速 -> 大姐（手里有未眠之城：大姐落地 → 铺城即 ●2 白抽 1，千金是机械族喂不到）");
-			return true;
-		}
-
-		if (_bountyBouncedTurn <= 0) return false;   // 本局还没用千金弹过卡
-		Log("翼③/辉煌 加速 -> 大姐（后攻已用千金 ② 弹过卡解场 → 不再叠第二只千金）");
-		return true;
+		return Bot.ExtraDeck.Any(c => c.IsCode(CardId.Jackpot));
 	}
 
 	// 对方回合「翼 ③ 加速」要叠哪一只（真正落地在 OnSelectCard 的「从额外挑超量」那一段）。
@@ -1770,7 +1681,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// ★ v5.90：后攻 + 本局千金弹过卡 → 加速直接选大姐（见 PreferJackpotOnAccel 的注释）
 		if (PreferJackpotOnAccel())
 		{
-			// 具体理由（手里有城 / 本局千金已弹过）由 `PreferJackpotOnAccel` 自己打日志
+			Log("翼③/辉煌 加速 -> 大姐（后攻已用千金 ② 弹过卡解场 → 不再叠第二只千金）");
 			return CardId.Jackpot;
 		}
 
@@ -1784,7 +1695,9 @@ public class RaiseMoonExecutor : DefaultExecutor
 		}
 
 		ClientCard last = Util.GetLastChainCard();
-		bool enemySearch = last != null && last.Controller == 1 && RaiseMoonScriptWipe.TakesFromDeckToHand(last.Id);
+		bool enemySearch = last != null && last.Controller == 1
+			&& !LastChainIsEnemyCardActivation()      // ★ v6.32：对方只是「发动卡」本身时不算检索
+			&& RaiseMoonScriptWipe.TakesFromDeckToHand(last.Id);
 		bool exFree = FreeEmzCount() > 0;
 
 		// 场景 ①：我方场上没有大姐 + 对方这一环是检索 + 自己的 EX 区是空的 → 大姐
@@ -1813,17 +1726,9 @@ public class RaiseMoonExecutor : DefaultExecutor
 			Log("翼③ 加速 -> 托勒密Ω7（对方 3 只怪 → 拔 3 弹 3 回卡组）");
 			return CardId.Omega7;
 		}
-		// ★ v6.39 用户口径（2026-10-27）：「加速优先级 —— 无大姐优先加速大姐，
-		//   有大姐优先加速千金大奖，**两个都有才加速 No.76**。」
-		//   原来这条只判「对方墓地值不值得挖」，于是「有大姐、没千金」的场面上也会被 No.76 抢走，
-		//   千金那条永远轮不到（截图里就是加速出了 No.76）。
-		bool jackpotOnField = HasSpellcasterXyz();
-		bool bountyOnField = Bot.GetMonsters().Any(c => c != null && c.IsCode(CardId.Bounty));
-		if (bodies >= 2 && Bot.ExtraDeck.Any(c => c.IsCode(CardId.Utopia76)) && GraveWorthUtopia76()
-			&& jackpotOnField && bountyOnField)
+		if (bodies >= 2 && Bot.ExtraDeck.Any(c => c.IsCode(CardId.Utopia76)) && GraveWorthUtopia76())
 		{
-			Log("翼③ 加速 -> No.76（大姐 + 千金都已在场，只剩它可做 · 对方墓地 "
-				+ EnemyGraveMonsterCount() + " 只非手坑怪 → 挖墓）");
+			Log("翼③ 加速 -> No.76（对方墓地 " + EnemyGraveMonsterCount() + " 只非手坑怪 → 挖墓）");
 			return CardId.Utopia76;
 		}
 
@@ -1991,90 +1896,19 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//      大姐那侧同步让位（`_squizContinuous`）：朔装上了就别再替换，否则抽 1 永不触发。
 	//   2) 对方回合要不要用「抽 1」：只看**对方场上有没有怪兽 / 魔陷** ——
 	//        有 → 另开 C1 抽 1（抽到本家正好下去解场）；没有 → 留着。
-	// ★ v6.06：对方这一手只是「把场地/永续/装备/灵摆摆到场上」吗？
-	//   这几类卡的检索（如果有）几乎都是**后续的起动/诱发效果**，不是这一手结算时发生的。
-	//   拿它当「对方要检索了」去挂朔的持续抽卡，就是赌对方会再开一次 —— 不开就白亏。
-	//   ★ 例外说明：极少数场地/永续是「发动时就检索」（脚本把检索写在 `EFFECT_TYPE_ACTIVATE`
-	//     的 operation 里）。真遇到那种卡，把它加进这里当例外即可，不要为此把整条规则撤掉。
-	private static bool ActivationOnlyPlacesCard(ClientCard c)
-	{
-		if (c == null) return false;
-		if (c.HasType(CardType.Field) || c.HasType(CardType.Continuous) || c.HasType(CardType.Equip))
-			return true;
-		if (c.HasType(CardType.Pendulum)
-			&& (c.Location == CardLocation.SpellZone || c.Location == CardLocation.PendulumZone))
-			return true;
-		return false;
-	}
-
-	// ★ v6.14：自己回合要不要把朔留到对方回合。
-	//   条件两条同时成立：
-	//     ① 场上我方表侧怪兽 ≤ 1 只 —— 场面没铺开，这回合抽 1 也接不上什么；
-	//     ② 手牌 / 场上 / 墓地**除了朔之外没有任何抽卡手段** —— 这回合本来就没别的补牌点，
-	//        那这张朔就是唯一的一张「能带到来回合」的资源，用了就少一次干扰。
-	//   任一不成立就照常抽（场面够大时抽 1 能立刻接上本家自跳）。
-	private bool SquizShouldHoldForEnemyTurn()
-	{
-		if (Duel.Player != 0) return false;
-		if (Duel.Turn <= 1) return false;                    // 先攻首回合另有 v5.85 的口径
-
-		// ★ v6.15 用户口径（2026-10-27）：「这个本家怪兽应该说是除了大姐以外的本家怪兽，
-		//   有大姐还是自己回合发动抽 1 的效果。」
-		//   ⇒ 大姐在场时不走「留着」这条路：大姐的「拔 1 抽 1」和朔是两套独立的资源，
-		//     场上已经有压制点，朔这回合直接抽 1 把牌续上更值。
-		foreach (ClientCard c in Bot.GetMonsters())
-			if (c != null && c.IsFaceup() && c.IsCode(CardId.Jackpot)) return false;
-
-		if (MyArchetypeBodyCount() > 1) return false;        // 场面铺开了 → 照常抽
-
-		// ★ v6.28 用户口径（2026-10-27，起手「卡萝尔×2 + 朔 + 灰流丽 + 希耶娜」那一手）：
-		//   「这手牌只有两张能抽卡的点 —— 先发希耶娜丢手抽 1，假设抽不到本家，那就只剩朔一张抽卡点了；
-		//    这时候再用朔抽、还是抽不到本家就彻底崩了。所以朔应该留着，盯对方回合有没有检索再挂持续抽卡。」
-		//   ⇒ 判据从「**没有**别的抽卡源才留」改成「**别的抽卡源只有 1 个**也留」：
-		//     加上手里这张朔，总共就两个抽卡点时，朔是最后的保底，不能在自己回合烧掉。
-		return OtherDrawSourceCount() <= 1;
-	}
-
-	// 场上我方表侧的本家怪兽数 —— **不算大姐**（v6.15：她是压制点，不是「场面铺开」的指标，
-	// 而且上面对大姐单开了一条出口）。千金大奖算本家怪兽。
-	private int MyArchetypeBodyCount()
-	{
-		int n = 0;
-		foreach (ClientCard c in Bot.GetMonsters())
-		{
-			if (c == null || !c.IsFaceup()) continue;
-			if (c.IsCode(CardId.Jackpot)) continue;
-			if (ArchetypeL7.Contains(c.Id) || c.IsCode(CardId.Bounty)) n++;
-		}
-		return n;
-	}
-
-	// ★ v6.14：除了「手上这张朔」之外，我方还有没有别的抽卡手段。
-	//   只数**能自己主动开**的（不含抽到自跳这类随机触发）：
-	//     手牌：刃 / 灯（③ 丢手抽 1）、卡萝尔（③ 抽 1）
-	//     场上：大姐（拔 1 抽 1，还有素材）、帐·西艾萝（③ 抽 1）、未眠之城（② 白抽 1）
-	//     墓地：群星 ②（除外抽 1）、辉煌 ②（除外抽 1）
-	private int OtherDrawSourceCount()
-	{
-		int n = 0;
-		foreach (ClientCard c in Bot.Hand)
-			if (c != null && (c.IsCode(CardId.Hiena) || c.IsCode(CardId.Kurusu) || c.IsCode(CardId.Carol))) n++;
-		if (Bot.GetMonsters().Any(c => c != null && c.IsFaceup() && c.IsCode(CardId.Jackpot) && c.HasXyzMaterial(1)))
-			n++;
-		if (Bot.GetMonsters().Any(c => c != null && c.IsFaceup() && c.IsCode(CardId.Siero)))
-			n++;
-		if (Bot.SpellZone.Any(c => c != null && c.IsFaceup() && c.IsCode(CardId.City)))
-			n++;
-		if (Bot.Graveyard.Any(c => c != null && c.IsCode(CardId.Stars)))
-			n++;
-		if (Bot.Graveyard.Any(c => c != null && c.IsCode(CardId.Splendor)))
-			n++;
-		return n;
-	}
-
 	private bool SquizActivate()
 	{
 		if (Card == null || Card.Location != CardLocation.Hand) return false;
+
+		// ★ v6.31 用户口径（2026-10-30 01:58）：「让小丑与锁鸟的效果适用后，不要发动朔的持续抽卡效果。」
+		//   这道闸门放在**函数最前面**，●1（自己抽 1）和 ●2（对方每次检索抽 1）一起拦住 ——
+		//   两者都以抽卡为落点，锁鸟生效期间一律抽不出来，发出去就是白扔一张手牌。
+		//   日志特意写明「持续抽卡」，方便在 `shengyue.log` 里直接 grep 验证。
+		if (DrollAppliedThisTurn())
+		{
+			Log("朔 → 小丑与锁鸟生效中（本回合双方都不能抽卡）→ 不发动（●1 抽1 / ●2 持续抽卡 都抽不出来，发了白扔一张）");
+			return false;
+		}
 
 		// ★ v5.57：每回合只发动 1 次（用户口径）。
 		//   先攻手里有 2 张朔 → 这一手发掉第一张，第二张留到对方回合看情况；
@@ -2095,55 +1929,15 @@ public class RaiseMoonExecutor : DefaultExecutor
 			//   另开一条 C1 再抽，它们才有各自的自跳窗口、才能接着把场面续上。
 			if (InChain())
 			{
-				// ★ v6.02 用户口径（2026-10-27）：「我方回合对方发检索时 —— 有大姐就不跟，没大姐跟。」
-				//   有大姐：大姐 ① 会把那条检索换成对方随机抽 1，和朔的 ●2 是同一份收益（v5.36 起就让位），
-				//   这一手留着。
-				//   没大姐：没人管这条检索 → 朔挂 ●2，本回合对方再检索几次，我方就再抽几张。
-				//   置顶（`TopHeldForEnemyTurn`）仍然优先：那是一次性留给对方回合的干扰，
-				//   现在挂 ●2 只要对方一检索就会把它抽走，等于白置顶。
-				ClientCard chainLast = Util.GetLastChainCard();
-				bool enemySearchInMyTurn = chainLast != null && chainLast.Controller == 1
-					&& chainLast.Location != CardLocation.Hand
-					&& RaiseMoonScriptWipe.TakesFromDeckToHand(chainLast.Id);
-				bool jackpotNow = Bot.GetMonstersInExtraZone()
-					.Any(c => c != null && c.IsCode(CardId.Jackpot));
-				if (enemySearchInMyTurn && !jackpotNow && !TopHeldForEnemyTurn())
-				{
-					AI.SelectOption(0);
-					_squizContinuous = true;
-					_squizUsedThisTurn = true;
-					Log("朔 我方回合、对方检索且 EX 区没大姐 → C2 跟链挂持续抽卡");
-					return true;
-				}
-				if (enemySearchInMyTurn && jackpotNow)
-					Log("朔 我方回合、对方检索但 EX 区有大姐 → 让大姐置换这条检索，朔不跟");
-				else
-					Log("朔 抽1 不跟链（连锁中抽到的本家跳不下来）→ 等这条结算完再 C1 丢");
+				Log("朔 抽1 不跟链（连锁中抽到的本家跳不下来）→ 等这条结算完再 C1 丢");
 				return false;
 			}
-			// ★ v6.14 用户口径（2026-10-27，replay 优化6）：「如果自己场上的本家怪兽 ≤1，
-			//   自己手牌 / 场上 / 墓地除了朔没有别的抽卡手段，则朔这回合不发动抽 1 效果，
-			//   留着在对方回合发动持续抽卡或者抽 1 效果（逻辑按之前说的）。」
-			//   为什么留着更值：自己回合的 ●1 只是「自己抽 1」，抽完这张朔就没了；
-			//   而场上一只本家、又没有别的抽卡源时，这回合本来也铺不开多少，
-			//   留到对方回合 —— 对方一检索就能挂 ●2「每次检索我方抽 1」，收益高得多。
-			if (SquizShouldHoldForEnemyTurn())
-			{
-				Log("朔 场上本家 " + MyArchetypeBodyCount() + " 只、且没有别的抽卡手段 → 这回合不抽，"
-					+ "留到对方回合挂持续抽卡 / 抽1");
-				return false;
-			}
-
 			// ★ v5.40：水母 combo 置顶的那张要留到对方回合 → 这次丢弃抽 1 也压住。
 			if (TopHeldForEnemyTurn())
 			{
 				Log("朔 抽1 → 群星① 置顶的那张要留给对方回合 → 这次不丢");
 				return false;
 			}
-			// ★ v6.11 用户口径（2026-10-27）：「当自己手牌有群星 + 其他任意抽 1 效果的本家，
-			//   先发动群星的置顶效果，然后发动其他的抽 1 效果。」
-			//   群星还没置顶时这一抽先压住 —— 先抽就等于抽在置顶之前，置顶那张白压。
-			if (HoldDrawForOrder()) return false;
 			AI.SelectOption(1);
 			_squizUsedThisTurn = true;
 			Log("朔 自己回合 → 自己抽1");
@@ -2154,70 +1948,20 @@ public class RaiseMoonExecutor : DefaultExecutor
 		ClientCard last = Util.GetLastChainCard();
 		if (last != null)
 		{
-			// ★ v6.00 口径①（用户 2026-10-27）：「当对方发动卡组特殊召唤 / 卡组送去墓地的效果时，
-			//   不要连锁发动朔的持续抽卡效果。」
-			//   持续抽卡只认「对方的卡**加入手卡**」（lua `s.cfilter`）—— 卡组特招、卡组堆墓
-			//   一张卡都不会进手，这一手丢出去什么都换不回来。
-			// ★ v6.02 用户口径（2026-10-27）：「同时满足检索就优先按检索处理。」
-			//   一体多效的卡（既能检索、又能卡组特招 / 堆墓）不算「卡组特招」这一档 ——
-			//   否则会把能检索的那一手整个排掉，白白放过一次抽卡机会。
-			bool deckSearchNow = last.Controller == 1 && last.Location != CardLocation.Hand
-				&& RaiseMoonScriptWipe.TakesFromDeckToHand(last.Id);
-			if (last.Controller == 1 && !deckSearchNow
-				&& (RaiseMoonScriptWipe.SpecialSummonsFromDeck(last.Id)
-					|| RaiseMoonScriptWipe.SendsDeckToGrave(last.Id)))
-			{
-				Log("朔 对方是「卡组特招 / 卡组堆墓」（且不是检索）→ 持续抽卡触发不了，这一手不跟");
-				return false;
-			}
-
-			// ★ v6.00 口径②（用户 2026-10-27）：「在对方回合，对方发动从墓地把卡加入手卡 /
-			//   场上的卡回到手卡 / 除外区的卡回到手卡的效果时，连锁发动朔的持续抽卡效果。」
-			//   这几类同样是「对方的卡加入手卡」，持续抽卡会触发，而旧判据只认「从卡组检索」全漏了。
-			// ★ v6.01（用户 2026-10-27 13:30）：「EX 区不需要有大姐，满足条件就发动。」
-			//   —— 原来那句「有大姐才发」是我按 v6.00 的字面加的，用户明确去掉：
-			//     回收类大姐本来就管不到（大姐 ① 只替换「从**卡组**加入手卡」），
-			//     没有理由因为它不在就不挂；挂着就是对方每回收一次我方抽一张。
-			//   也不让灰流丽：灰流丽只无效「从卡组加手卡 / 卡组特招 / 卡组堆墓」，对回收一律无效。
-			if (last.Controller == 1 && last.Location != CardLocation.Hand
-				&& RaiseMoonScriptWipe.TakesNonDeckToHand(last.Id))
-			{
-				AI.SelectOption(0);
-				_squizContinuous = true;
-				_squizUsedThisTurn = true;
-				Log("朔 对方回收类（墓地 / 场上 / 除外 → 手卡）→ C2 挂持续抽卡");
-				return true;
-			}
-
 			// 连锁里只做一件事：对方检索 → 跟上「持续抽卡」。
 			// 判据：链上最后一环是对方的卡、不是从手牌发动（手坑），且 lua 会「从卡组把卡加入手卡」。
 			// 对方从卡组**堆墓** / 从墓地回收 / 单纯抽卡都不满足这条 —— 那时候丢掉朔什么都换不回来。
-			if (deckSearchNow)
+			if (last.Controller == 1 && last.Location != CardLocation.Hand
+				&& RaiseMoonScriptWipe.TakesFromDeckToHand(last.Id))
 			{
-				// ★ v6.06 用户口径（2026-10-27，replay 优化2）：「如果对方在手牌或者场上盖放的卡发动
-				//   场地/永续魔陷/灵摆/装备等时，如果**当前发动不包含检索效果**则不要跟连锁，
-				//   只有等对方当前效果是检索效果才跟。」
-				//   病根：`TakesFromDeckToHand` 是**整张卡粒度** —— 只要这张卡的脚本里有检索痕迹就算命中。
-				//   而「炎王的孤岛」这种场地的检索是**②起动效果**（自己主要阶段才能发动，从卡组加 1 张
-				//   「炎王」卡），跟它这次「发动场地」是两个不同的效果。
-				//   在这里挂持续抽卡 = 赌对方会再开一次检索，对方不开就白亏一张朔。
-				//   ⇒ 场地 / 永续 / 装备 / 灵摆 的「发动」这一手一律不跟；等对方真去发动那条检索效果时，
-				//     链尾就是检索本身，那时再跟（走下面正常的检索分支）。
-				// ★ v6.07 用户口径（2026-10-27）：「发动时就检索的永续/场地要连锁发动持续抽卡。」
-				//   所以上面那条不是一刀切 —— 先用 `ActivationSearches` 看这一手**发动时**会不会检索：
-				//     · 会（检索写在 ACTIVATE effect 里）→ 照常跟，往下走；
-				//     · 不会（检索在之后的起动/诱发效果里，比如「炎王的孤岛」②）→ 不跟。
-				if (ActivationOnlyPlacesCard(last) && !RaiseMoonScriptWipe.ActivationSearches(last.Id))
+				// ★ v6.32：这一环只是「发动这张卡」本身（场地 / 永续 / 装备）——
+				//   检索写在它的起动效果里（`c5063379.lua` 的 e2），现在挂 ●2 一张牌都换不回来。
+				if (LastChainIsEnemyCardActivation())
 				{
-					Log("朔 对方这一手只是「发动」" + last.Name
-						+ "（场地/永续/装备/灵摆），检索在它之后的起动效果里 → 不跟；等它真发检索再跟");
+					Log("朔 对方只是「发动 " + (last.Name ?? "?") + "」这张卡本身"
+						+ "（检索是它场上的起动效果，这一环不检索）→ 不跟，等它真检索再挂");
 					return false;
 				}
-				if (ActivationOnlyPlacesCard(last))
-				{
-					Log("朔 对方「" + last.Name + "」是**发动时就检索**的场地/永续 → 跟链挂持续抽卡");
-				}
-
 				// ★ v5.20 用户口径：手卡同时有灰流丽和朔时 ——
 				//   **对方的第一个检索先交给灰流丽无效**；对方再开第二个检索时，
 				//   灰流丽 1 回合 1 次已经用掉，这时才轮到朔挂「持续抽卡」。
@@ -2339,6 +2083,14 @@ public class RaiseMoonExecutor : DefaultExecutor
 	{
 		if (Card == null || Card.Location != CardLocation.Grave) return false;
 
+		// ★ v6.30：小丑与锁鸟生效中 → 本回合双方都不能抽卡（`EFFECT_CANNOT_DRAW`），
+		//   群星 ② 是「除外自身抽 1」，发了只是把墓地这张白白除外。
+		if (DrollAppliedThisTurn())
+		{
+			Log("群星 ② → 小丑与锁鸟生效中（本回合双方都不能抽卡）→ 不除外，留着");
+			return false;
+		}
+
 		// ★ v5.71 用户口径：「墓地有群星，场上有未眠之城的时候，群星要把抽卡效果用掉，
 		//   而且这里应该是自己抽 1 的那个效果。」
 		//   依据 `c72978038.lua` 的 e4（未眠 ③）：自己·对方的结束阶段把墓地·除外状态的
@@ -2363,19 +2115,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		}
 		// ★ v5.2 顺序：手里还有副葬 / 群星① 还没置顶时先别抽 —— 见 HoldDrawForOrder。
 		if (HoldDrawForOrder()) return false;
-
-		// ★ v6.19 用户口径（2026-10-27，replay 优化2）：「升月抽卡抽到卡萝尔，发动效果被灰流丽。
-		//   此时正确操作是：发动群星置顶，然后通常召唤卡萝尔效果抽卡，
-		//   而不是直接发动群星墓地双方抽 1 的效果。」
-		//   理由：没有魔法师族本家超量时，群星 ② 只能选 ●1「双方各抽 1」=**白送对方一张**；
-		//   而卡萝尔通召后的 ③ 是「只自己抽 1」。同样一次抽卡，后者净赚一张。
-		//   顺序由两条闸门叠出来：① 手里有群星没置顶 → `HoldDrawForOrder` 先压住（去置顶）；
-		//   ② 置顶完再被这条压住（先通召卡萝尔抽）；卡萝尔抽完，群星 ② 才轮到。
-		if (!HasSpellcasterXyz() && CarolSummonDrawAvailable())
-		{
-			Log("群星 ② → 手里有卡萝尔能通召抽 1（只自己抽）→ 先让卡萝尔，别用双方各抽 1");
-			return false;
-		}
 		// ★ v5.70 用户口径：「如果自己场上能做出大姐，则优先等做出大姐后开第二个效果抽 1
 		//   （而不是双方抽 1）。」
 		//   ●1 = 双方各抽 1（恒可用）、●2 = 只自己抽 1（要求场上有魔法师族本家超量）。
@@ -2399,16 +2138,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 	// 群星①：从卡组把 1 张本家置顶。
 	// ★ 绝对不能查「卡组里有没有」——AI 看不到自己的卡组（Deck 里未抽到的卡 Id 全是 0），
 	//   以前用 Bot.Deck.Any(...) 判断导致这张卡永远不发动。直接开，挑哪张交给 OnSelectCard。
-	// ★ v6.19：手里有卡萝尔、且怪兽区还有位 → 她那一次「通召后 ③ 抽 1」是比群星 ② 更好的抽卡点。
-	private bool CarolSummonDrawAvailable()
-	{
-		if (!Bot.Hand.Any(c => c != null && c.IsCode(CardId.Carol))) return false;
-		// ★ v6.20：本回合已经通召过卡萝尔 → 她这回合再也落不了地，
-		//   不能拿一条已经用掉的退路去压群星 ②（否则这一抽就永远等不到了）。
-		if (_carolNsTurn == Duel.Turn) return false;
-		return HasFreeMonsterZone();
-	}
-
 	private bool StarsTop()
 	{
 		if (Card == null || Card.Location == CardLocation.Grave) return false;
@@ -2456,20 +2185,16 @@ public class RaiseMoonExecutor : DefaultExecutor
 		if (_starsToppedThisTurn) return false;  // ① 已经置顶过 → 放行
 		if (!Bot.Hand.Any(c => c != null && c.IsCode(CardId.Stars))) return false;  // 手里没群星 → 放行
 
-		// ★ v6.11 用户口径（2026-10-27）：「当自己手牌有群星 + 其他任意抽 1 效果的本家，
-		//   先发动群星的置顶效果，然后发动其他的抽 1 效果。置顶优先级按之前说过的逻辑，
-		//   群星墓地抽卡的逻辑也是之前说过的。」
-		//   旧条件里 `waitTop = _burialUsedThisTurn` 只在「这回合发过副葬」时才等置顶 ——
-		//   手里没有副葬、只有群星 + 抽 1 卡时，抽卡直接放行，置顶那一手等于白做。
-		//   现在：能走到这里本身就意味着「手里有群星 + 本回合还没置顶」，一律让位。
-		bool waitBurial = CanUseBurialNow();
+		bool waitBurial = CanUseBurialNow();     // 副葬还没发
+		bool waitTop = _burialUsedThisTurn;      // 副葬已发，但群星还没置顶
+		if (!waitBurial && !waitTop) return false;
 
 		if (!_orderHoldLogged)
 		{
 			_orderHoldLogged = true;
 			Log(waitBurial
 				? "抽卡 延后 → 先让副葬堆辉煌（手牌有副葬+群星）"
-				: "抽卡 延后 → 先让群星置顶（手牌有群星），置顶后再抽");
+				: "抽卡 延后 → 先让群星置顶（副葬已堆辉煌），置顶后再抽");
 		}
 		return true;
 	}
@@ -2542,6 +2267,16 @@ public class RaiseMoonExecutor : DefaultExecutor
 				Log("未眠 → 手牌只剩这 1 张（含未眠本身，≤1）且场上没有大姐 → 不从手牌发动，留着");
 				return false;
 			}
+			// ★ v6.28 用户口径（2026-10-30 01:05）：「当手牌有复数张未眠之城时，先发动第一张未眠之城，
+			//   然后根据场上情况发动回 1 抽 1 或者自己抽 1 的效果，**再**发动第二张未眠之城。」
+			//   e3 是「按玩家一回合一次」⇒ 场上那张的 ② 没发掉之前先别铺第二张：
+			//   铺早了会让 `Bot.Hand` 少一张可洗的牌（●1 可能直接没对象），而且两张城的抽卡名额只有一次。
+			if (!_cityUsedThisTurn
+				&& Bot.GetSpells().Any(c => c != null && c.IsCode(CardId.City) && c.IsFaceup()))
+			{
+				Log("未眠 → 场上那张还没发过 ② → 先发它的效果，再铺手里这第二张");
+				return false;
+			}
 			Log(HasSpellcasterXyz()
 				? "未眠 → 从手牌铺到魔陷区（场上有大姐 → 下一个时点直接发 ●2 白抽 1）"
 				: "未眠 → 从手牌铺到魔陷区（② 等做出大姐再发 ●2 白抽）");
@@ -2561,11 +2296,8 @@ public class RaiseMoonExecutor : DefaultExecutor
 				Log("未眠 ② 白抽 1 → 群星① 置顶的那张要留给对方回合 → 这次不抽（抽走它，下回合的干扰就没了）");
 				return false;
 			}
-			// ★ v6.11 用户口径（2026-10-27）：「当自己手牌有群星 + 其他任意抽 1 效果的本家，
-			//   先发动群星的置顶效果，然后发动其他的抽 1 效果。」
-			//   群星还没置顶时这一抽先压住 —— 先抽就等于抽在置顶之前，置顶那张白压。
-			if (HoldDrawForOrder()) return false;
 			AI.SelectOption(1);
+			_cityUsedThisTurn = true;   // ★ v6.28：本回合的 ② 名额用掉了
 			Log("未眠 ② 白抽 1（场上有大姐 → ●2 无代价抽 1）");
 			return true;
 		}
@@ -2617,19 +2349,10 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return false;
 		}
 
-		// ★ v5.99 用户口径（2026-10-27 11:41）：「未眠之城不要回手牌的单张落胤与圣女，复数张才回。」
-		//   ●1 是「先洗回 1 张手卡、再抽 1」—— 手里除了那张单张的落胤与圣女就没别的可洗时，
-		//   这一发等于拿唯一的落胤与圣女换 1 抽（净 0，还掉一张后续回合的破坏 / 苏生点）→ 干脆不发，
-		//   留给 ●2（大姐在场时）或者下回合。有 ≥2 张时走 ④ 那一档，不受这条影响。
-		if (!Bot.Hand.Any(c => c != null && !c.IsCode(CardId.City) && !IsLoneFallen(Bot.Hand, c)))
-		{
-			Log("未眠 ② → 手上除了单张的落胤与圣女没有别的可洗 → 这次不发（留着它，等 ●2 或下回合）");
-			return false;
-		}
-
 		AI.SelectOption(0);
 		_returnHandPending = true;
 		_returnHandIsCity = true;    // ★ v5.22：这次的返卡可以放顶/底，由 PickCityReturnCard 决定
+		_cityUsedThisTurn = true;    // ★ v6.28：本回合的 ② 名额用掉了
 		Log("未眠 ② 回 1 抽 1" + (_holdMode ? "（水母 hold → 把手里本家压回卡组顶，留给下回合干扰）" : ""));
 		return true;
 	}
@@ -2735,16 +2458,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//   卡萝尔永远不进这条链 —— 见 `CityActivate` 里的说明（留着通召）。
 	//   旧行为（v5.21 及以前）一律按 `HandCardValue` 取最低分：挑中的常常是菈碧 / 手坑，
 	//   却统一丢到卡组最上面 —— 菈碧倒是能自跳，手坑则等于白洗一次、下回合又摸回来。
-	// ★ v5.99 用户口径（2026-10-27 11:41）：「未眠之城不要回手牌的单张落胤与圣女，复数张才回。」
-	//   手里只有 1 张时，它还是后续回合的破坏 / 苏生点 —— 洗回卡组换 1 抽是净 0，还平白掉一张关键牌；
-	//   有两张以上才把多余的那张沉底（v5.95 那一档）。
-	//   注意只对**未眠之城**这条线生效：帐 ② 是「返 1 张卡自跳」，手里只剩那张也得返，否则整只怪跳不下来。
-	private bool IsLoneFallen(IList<ClientCard> hand, ClientCard c)
-	{
-		if (c == null || !c.IsCode(CardId.FallenVirtuous)) return false;
-		return hand.Count(x => x != null && x.IsCode(CardId.FallenVirtuous)) <= 1;
-	}
-
 	private ClientCard PickCityReturnCard(List<ClientCard> hand)
 	{
 		if (hand == null || hand.Count == 0) return null;
@@ -2758,7 +2471,22 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return rabi;
 		}
 
-		// ② 西艾萝（帐）
+		// ② ★ v6.28 用户口径（2026-10-30 01:05 / 01:09）：手里还有一张未眠之城、且 hand ≤2
+		//   → 把这张城放**卡组底**。
+		//   场景：两张城起手 → 先铺第一张 → ●1 唯一可洗的就是剩下那张城。
+		//   e3 按**玩家**一回合一次，这张铺下去也没有第二次抽卡，只会多一只白板在场；
+		//   放卡组底换 1 张新牌，比留着或铺下去都实在。
+		//   ★ 位置：v6.28 第一版放在所有档位之前，用户指出「手里是 [城, 菈碧] 时应该先洗菈碧
+		//     （抽到即自跳）」→ 现在排在**菈碧档之后**。
+		List<ClientCard> spareCity = hand.Where(c => c != null && c.IsCode(CardId.City)).ToList();
+		if (spareCity.Count > 0 && hand.Count <= 2)
+		{
+			_returnHandToTop = false;
+			Log("未眠 ② → 手里这张未眠之城（手牌 ≤2）放卡组最下面（本回合的 ② 名额已经用在场上那张上）");
+			return spareCity.First();
+		}
+
+		// ③ 西艾萝（帐）
 		ClientCard siero = hand.FirstOrDefault(c => c.IsCode(CardId.Siero));
 		if (siero != null)
 		{
@@ -2767,7 +2495,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return siero;
 		}
 
-		// ③ 解场档：未眠② 是 IGNITION，只在自己回合的主阶发，所以这里就是「升月要拆对方什么」。
+		// ④ 解场档：未眠② 是 IGNITION，只在自己回合的主阶发，所以这里就是「升月要拆对方什么」。
 		//    对方前场有大怪 / 后场没东西 → 希耶娜弹怪兽；对方后场有魔陷 → 库露雪弹魔陷。
 		ClientCard hiena = hand.FirstOrDefault(c => c.IsCode(CardId.Hiena));
 		ClientCard kurusu = hand.FirstOrDefault(c => c.IsCode(CardId.Kurusu));
@@ -2794,14 +2522,11 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return hiena;
 		}
 
-		// ④ ★ v5.95 用户口径：「复数的落胤与圣女 ＞ 手坑」——
+		// ⑤ ★ v5.95 用户口径：「复数的落胤与圣女 ＞ 手坑」——
 		//    手里有两张以上时，多出来的那张**比手坑更该沉底**。
 		//    理由：落胤与圣女 的 ●1 / ●2 都是按**卡名**一回合一次，第二张这一回合根本用不出去，
 		//    而手坑是「对方一动就能丢」的即时资源 —— 把死牌沉底、把手坑留在手上等对方。
 		//    只沉掉多余的（留 1 张在手里：它还能当后续回合的破坏 / 苏生点）。
-		// ★ v5.99 用户口径（2026-10-27 11:41）：「未眠之城不要回手牌的单张落胤与圣女，复数张才回。」
-		//   ⇒ 只有 ≥2 张才进这一档；「单张」那一种**连兜底都不许挑**（见 OnSelectCard 的返卡段
-		//   与 `IsLoneFallen`）—— 手里就一张时它是后续回合的破坏 / 苏生点，洗回去换 1 抽是净 0 还掉一张关键牌。
 		List<ClientCard> fallen = hand.Where(c => c != null && c.IsCode(CardId.FallenVirtuous)).ToList();
 		if (fallen.Count >= 2)
 		{
@@ -2810,20 +2535,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return fallen.First();
 		}
 
-		// ★ v6.23 用户口径：「手坑之中如果有欢聚友伴水母/雀，则优先回去卡组最下面。」
-		//   理由：这两张是「自己空场才发得出来」的卡 —— 场上已经有东西时抓在手里就是废牌，
-		//   比别的手坑更该沉底（别的手坑至少还能在对方回合随时丢）。
-		ClientCard mulcharmy = hand
-			.Where(c => c != null && c.IsCode(CardId.Jellyfish))
-			.OrderBy(HandCardValue).FirstOrDefault();
-		if (mulcharmy != null)
-		{
-			_returnHandToTop = false;
-			Log("未眠 ② → 欢聚友伴「" + mulcharmy.Name + "」优先沉到卡组最下面（场上已有东西时这张是废牌）");
-			return mulcharmy;
-		}
-
-		// ⑤ 兜底：手坑沉到卡组最下面
+		// ⑥ 兜底：手坑沉到卡组最下面
 		ClientCard trap = hand.Where(c => HandTrapIds.Contains(c.Id))
 			.OrderBy(HandCardValue).FirstOrDefault();
 		if (trap != null)
@@ -3303,6 +3015,11 @@ public class RaiseMoonExecutor : DefaultExecutor
 	// 判据与 XyzBigEye / XyzChaosAtlandis / XyzOmega7 自身的闸门保持一致，改那边记得同步这里。
 	private bool EnemyXyzPlayPending()
 	{
+		if (Bot.ExtraDeck.Any(c => c.IsCode(CardId.BigEye)) && !_lightLock && StealTarget() != null)
+			return true;   // 巨眼：对方站着值得抢的怪
+		if (Bot.ExtraDeck.Any(c => c.IsCode(CardId.ChaosAtlandis))
+			&& Duel.Phase == DuelPhase.Main1 && !CanFinish() && EnemyWall() != null)
+			return true;   // 混沌大西洲：对方有 ≤3200 的墙
 		if (Bot.ExtraDeck.Any(c => c.IsCode(CardId.Omega7)) && !CanFinish()
 			&& (Enemy.GetMonsterCount() >= 3
 				|| (Duel.Phase == DuelPhase.Main2 && Level7Bodies().Count >= 3)))
@@ -3405,6 +3122,19 @@ public class RaiseMoonExecutor : DefaultExecutor
 	// ★ 抢「怪」不抢「魔陷」：对方后场贴的永续/场地它碰不到，那种局面仍然交给千金大奖弹卡。
 	// ★ 只在对方站着「值得抢的干扰怪」时才出（判据见 `IsDisruptiveEnemyMonster`）——
 	//   一只低攻杂鱼也要两个 7 星，那是纯亏。没目标就返回 false，让素材回去叠千金大奖。
+	private bool XyzBigEye()
+	{
+		if (Duel.Player != 0) return false;
+		if (_lightLock) return false;                       // DARK 终端，光属性超量自肃期间不能用
+		if (!Bot.ExtraDeck.Any(c => c.IsCode(CardId.BigEye))) return false;
+		ClientCard prey = StealTarget();
+		if (prey == null) return false;
+		List<ClientCard> mats = Level7Bodies();
+		if (mats.Count < 2) return false;
+		AI.SelectMaterials(mats.Take(2).ToList());
+		Log("超量 巨眼（夺取 " + prey.Name + " ATK" + prey.Attack + "）");
+		return true;
+	}
 
 	// ★ v5.46 用户口径：「巨眼的出场逻辑，只有对方有那种升月夺取控制权后能干扰对方的怪兽
 	//   （比如水晶翼同调龙之类具有干扰效果的怪兽）才优先出巨眼。」
@@ -3451,6 +3181,20 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//   ★ 硬代价：「这个卡名的①②的效果发动过的回合，对方受到的全部伤害变成 0」
 	//     → 这回合基本别想打人。所以只在「本回合收不掉对面」时出，纯解场，伤害留给下回合。
 	//   ★ ② 要求素材里有「No.6 大西洲巨人」，本卡组从不拿它当素材 → ② 永远用不了，不实现。
+	private bool XyzChaosAtlandis()
+	{
+		if (Duel.Player != 0) return false;
+		if (Duel.Phase != DuelPhase.Main1) return false;
+		if (!Bot.ExtraDeck.Any(c => c.IsCode(CardId.ChaosAtlandis))) return false;
+		if (CanFinish()) return false;                      // 能斩杀就别上这张（当回合打不出伤害）
+		ClientCard wall = EnemyWall();
+		if (wall == null) return false;
+		List<ClientCard> mats = Level7Bodies();
+		if (mats.Count < 3) return false;                   // R7×3
+		AI.SelectMaterials(mats.Take(3).ToList());
+		Log("超量 混沌大西洲（解 " + wall.Name + " ATK" + wall.Attack + "）");
+		return true;
+	}
 
 	// 对方场上「我方处理不掉的墙」：攻击力 ≤ 3200（3300 本体打得过），
 	// 且要么比我方任何怪都硬，要么是引擎认定的麻烦卡。
@@ -3518,13 +3262,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		if (Duel.Player != 0) return false;
 		if (!Bot.ExtraDeck.Any(c => c.IsCode(CardId.Utopia76))) return false;
 
-		// ★ v6.32 用户口径（2026-10-27，T7 对方 5300 那局）：**能斩杀就先斩杀**。
-		//   对方 LP ≤ 5300（光子咆哮战阶打点）时，场上两只 7 星该走
-		//   「千金 → 黑智天至 → 光子咆哮 5300」直接打死，而不是拿去叠 No.76 挖墓 ——
-		//   挖墓是「这回合打不死、先压住对方墓地资源」的备用方案，永远排在斩杀之后。
-		//   （实测 20:44:35 那手：对方空场、墓地 7 只 → 直接叠 No.76，把 5300 的斩杀线整个跳过了。）
-		if (CanFinish()) return false;
-
 		if (Duel.Turn <= 2) return false;   // ① 局面早期不赌
 
 		// ② 手坑不算墓地卡组的信号
@@ -3544,6 +3281,45 @@ public class RaiseMoonExecutor : DefaultExecutor
 		return true;
 	}
 
+	private bool XyzChersib()
+	{
+		// 漆梏之食兽（R7×2+，DARK 兽族 700+素材×700 / 2500）
+		//   ② 对方发动通常·速攻魔法时 → 场上的那张卡吸成自己的超量素材，且这张卡不受那个效果影响。
+		//   ③ 结束阶段把素材里的魔法卡在自己场上盖回来。
+		//
+		// ★ v5.11 用户口径（重新装回卡组后给的边界）：
+		//   「如果对方卡组通常魔法和速攻魔法卡用得多的话可以出，其他情况就不出这卡了
+		//     （比如对方是闪刀卡组和光与暗的仪式卡组）。
+		//     此外，如果对方后场盖放的魔法陷阱卡很多的话，升月 R7 应该优先出千金大奖来弹回卡组。」
+		//   ⇒ 判据从 v5.10 的「对方魔陷区 ≥2 张」改成两条：
+		//     1) 对方**墓地**里的「通常魔法 / 速攻魔法」≥3 张 —— 食兽 ② 只对这两种响应，
+		//        所以只看这两种的坟场数量才是「对方真的在刷通常·速攻」的证据（闪刀的速攻、仪式的通常都算）；
+		//        原来数「对方魔陷区张数」会把**盖着的陷阱**也算进来 → 陷阱卡组被误判成魔法卡组。
+		//     2) 对方后场**盖卡 ≥2 张时不抢** —— 那种局面千金大奖「拔 2 弹 2」把盖卡弹回卡组更赚。
+		//   ★ 同时删掉 v5.3 以前的「千金大奖用尽 → 第 4 只 R7」兜底：用户口径「其他情况就不出这卡」。
+		if (_lightLock) return false;                       // DARK，光属性超量自肃期间不能用
+		if (!Bot.ExtraDeck.Any(c => c.IsCode(CardId.Chersib))) return false;
+		List<ClientCard> mats = Level7Bodies();
+		if (mats.Count < 2) return false;
+
+		int setCards = Enemy.GetSpells().Count(c => c != null && !c.IsFaceup());
+		if (setCards >= 2)
+		{
+			Log("食兽 → 对方后场盖卡 " + setCards + " 张，让千金大奖拔2弹2");
+			return false;
+		}
+
+		int nq = Enemy.GetGraveyardSpells().Count(IsNormalOrQuickSpell);
+		if (nq < 3)
+		{
+			Log("食兽 → 对方墓地只有 " + nq + " 张通常·速攻魔法，不是魔法循环卡组，不出");
+			return false;
+		}
+
+		AI.SelectMaterials(mats.Take(2).ToList());
+		Log("超量 漆梏之食兽（对方墓地通常·速攻魔法 " + nq + " 张 → 吸魔法）");
+		return true;
+	}
 
 	// 「通常魔法 / 速攻魔法」判定。
 	//   ★ cards.cdb 里通常魔法只带 TYPE_SPELL（大岚 type=0x2，**没有** TYPE_NORMAL），
@@ -3575,8 +3351,43 @@ public class RaiseMoonExecutor : DefaultExecutor
 	// ★ 为什么它是「拆魔陷/场地」的位置：前面四只针对终端只处理怪兽
 	//   （巨眼抢怪 / 大西洲碾抗性怪 / 托勒密弹怪 / No.76 挖墓），没人管后场和场地；
 	//   千金大奖 ② 虽然也能弹魔陷，但要吃满素材且会把 `_bountyActivated` 打上（断掉黑智天至的斩杀线）。
+	private bool XyzBlazeDragon()
+	{
+		if (Duel.Player != 0) return false;                    // ① 是 IGNITION：只有自己回合的主阶能用
+		if (Duel.Phase != DuelPhase.Main1) return false;        // 主阶 1 出 → 2800 还能进战阶打；M2 留给天霆号
+		if (!Bot.ExtraDeck.Any(c => c.IsCode(CardId.BlazeDragon))) return false;
+		if (CanFinish()) return false;                          // 能收人头就先把伤害打出去，不为拆卡浪费素材
+		List<ClientCard> mats = Level7Bodies();
+		if (mats.Count < 2) return false;
+
+		ClientCard prey = BlazePrey();
+		ClientCard sac = PickBlazeSacrifice();
+		if (prey == null || sac == null) return false;
+		if (!BlazeWorthIt(prey, sac)) return false;
+
+		AI.SelectMaterials(PickMaterials(mats, 2));
+		Log("超量 征霸龙（拆对方「" + prey.Name + "」，自己那头用「" + sac.Name + "」）");
+		return true;
+	}
 
 	// ① 的发动：条件与召唤时同一条换账，只是状态可能变了（比如对方又盖了一张），所以重新算一次。
+	private bool BlazeActivate()
+	{
+		if (Card == null || Card.Location != CardLocation.MonsterZone) return false;
+		if (EffectNegated()) return false;                      // 被无效还发 = 白扔 1 个素材
+		if (!Card.HasXyzMaterial(1)) return false;
+		if (Duel.Player != 0) return false;                     // IGNITION：只在自己回合
+		ClientCard prey = BlazePrey();
+		ClientCard sac = PickBlazeSacrifice();
+		if (prey == null || sac == null) return false;
+		if (!BlazeWorthIt(prey, sac)) return false;
+
+		_blazeSacrifice = sac;
+		_blazePrey = prey;
+		_blazePending = 2;                                       // 紧接着两次选卡：自己的 → 对方的
+		Log("征霸龙 ① 拔1 → 破坏自己「" + sac.Name + "」+ 对方「" + prey.Name + "」");
+		return true;
+	}
 
 	// 对方场上最值得拆的那张。
 	//   场地魔法（对方的资源引擎，用户点名的场景）＞ 表侧永续/装备 ＞ 表侧其他魔陷 ＞ 里侧盖卡。
@@ -3611,7 +3422,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		return Bot.Hand.Where(c => c != null)
 			.Concat(Bot.GetMonsters())        // 含 EX 区（大姐在 EX 区免疫 → 代价 0，天然排第一）
 			.Concat(Bot.GetSpells())          // 含场上魔法陷阱 + 场地
-			.Where(c => c != null)
+			.Where(c => c != null && !c.IsCode(CardId.BlazeDragon))   // 别把自己炸了
 			.OrderBy(BlazeSacrificeCost)
 			.FirstOrDefault();
 	}
@@ -3840,7 +3651,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 		AI.SelectMaterials(new List<ClientCard> { baseXyz });
 		Log("叠 光子咆哮 ← 黑智天至（战阶 5300）");
-		Say("photon", "叔叔，看到我这黑黑的大龙了吗，马上就要给你来上一发了哦～");
 		return true;
 	}
 
@@ -3859,6 +3669,48 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//                 **主要阶段 2** 再补一层反物质龙 —— 这一层纯粹是给天霆号多攒 1 个素材
 	//                 （光子咆哮 4 → 反物质龙 5 → 天霆号 6；千金大奖弹过卡就凑不到 3，直接跳过）。
 	//   两条分支最后都在反物质龙上叠天霆号 → 下个对方回合拔 2 清场。
+	private bool AntimatterSummon()
+	{
+		if (Duel.Player != 0) return false;
+		if (Duel.Turn == 1) return false;
+		if (!Bot.ExtraDeck.Any(c => c.IsCode(CardId.Antimatter))) return false;
+
+		// 基底只认光子咆哮：千金大奖 2 → 黑智天至 3 → 光子咆哮 4。
+		// 反物质龙的叠放条件写死「持有超量素材 3 个以上」，凑不到就不出 ——
+		// 千金大奖弹满卡之后光子咆哮可能只剩 2 个，这时硬叠是叠不上去的，
+		// 直接停在光子咆哮打，M2 用现有的素材叠天霆号就好。
+		ClientCard roar = Bot.GetMonstersInMainZone()
+			.FirstOrDefault(c => c.IsFaceup() && c.IsCode(CardId.PhotonRoar));
+		ClientCard baseXyz = roar != null && roar.HasXyzMaterial(3) ? roar : null;
+		if (baseXyz == null)
+		{
+			if (roar != null)
+				Log("反物质龙 → 光子咆哮素材只有 " + roar.Overlays.Count + " 个，不够 3 个，不勉强出");
+			return false;
+		}
+
+		int enemyMons = Enemy.GetMonsterCount();
+
+		if (Duel.Phase == DuelPhase.Main1)
+		{
+			// B 线：对方 2 只以上 → 战前叠，战阶用 ② 一只一只啃
+			if (enemyMons < 2) return false;
+			AI.SelectMaterials(new List<ClientCard> { baseXyz });
+			Log("叠 反物质龙 ← 光子咆哮（对方 " + enemyMons + " 只怪，战阶打两次）");
+			return true;
+		}
+
+		if (Duel.Phase == DuelPhase.Main2)
+		{
+			// A 线：战阶已经打完，对方最多剩 1 只 → 补一层，给天霆号多 1 个素材
+			if (enemyMons > 1) return false;
+			AI.SelectMaterials(new List<ClientCard> { baseXyz });
+			Log("叠 反物质龙 ← 光子咆哮（M2 补素材 → 天霆号）");
+			return true;
+		}
+
+		return false;
+	}
 
 	// ===== v5.11：斩杀线新的一层 —— 银河眼重铠光子龙 =====
 	//
@@ -3917,7 +3769,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 		AI.SelectMaterials(new List<ClientCard> { baseXyz });
 		Log("叠 重铠光子龙 ← 光子咆哮（拔1 破坏对方「" + prey.Name + "」）");
-		Say("photon", "叔叔，看到我这黑黑的大龙了吗，马上就要给你来上一发了哦～");
 		return true;
 	}
 
@@ -4064,59 +3915,42 @@ public class RaiseMoonExecutor : DefaultExecutor
 			//   所以这里不再要求「对方场上还有卡」—— 对方空场时，光子咆哮 / 反物质龙在对方回合
 			//   什么都做不了，天霆号至少能拔 2 清场；打点从 5300 降到 4200（战阶）是换取主动权的代价。
 			ClientCard baseM2 = BestZeusBase();
-			if (baseM2 == null)
-			{
-				// ★ v6.36：以前这里静默 return，日志里只剩「没叠天霆号」，看不出卡在哪条。
-				//   把每条前置逐个打出来（每回合只打一次），下次一翻日志就知道是素材不够还是没打过架。
-				if (_zeusSkipLoggedTurn != Duel.Turn)
-				{
-					_zeusSkipLoggedTurn = Duel.Turn;
-					int xyz = 0, noMat = 0, noBattle = 0;
-					foreach (ClientCard c in Bot.GetMonstersInMainZone())
-					{
-						if (c == null || !c.IsFaceup() || !c.HasType(CardType.Xyz)) continue;
-						xyz++;
-						if (c.IsCode(CardId.Zeus) || c.IsCode(CardId.Jackpot)
-							|| c.IsCode(CardId.Omega7) || c.IsCode(CardId.AriseHeart)) continue;
-						if (!c.HasXyzMaterial(2)) { noMat++; continue; }
-						if (!AttackedThisTurn(c)) noBattle++;
-					}
-					Log("天霆号 M2 不叠：场上表侧超量 " + xyz + " 只，其中素材<2 的 "
-						+ noMat + " 只、这回合没战斗过的 " + noBattle + " 只（天霆号必须先有超量怪打过架）");
-				}
-				return false;
-			}
+			if (baseM2 == null) return false;
 			AI.SelectMaterials(new List<ClientCard> { baseM2 });
 			Log("叠 天霆号 ← " + baseM2.Name + "（M2，下个对方回合拔2清场）");
 			return true;
 		}
 
-		// ★ v6.09 用户口径（2026-10-27）：「天霆号 M1 叠不了（因为没有超量怪兽进行过战斗），
-		//   只能在主要阶段 2 出。」
-		//   卡理：天霆号的正规召唤是「12 星×2」，本卡组没有这对素材；
-		//   唯一能用的是它的替代条件 ——「**在超量怪兽进行过战斗的回合**，1 回合 1 次，也能在自己场上的
-		//   超量怪兽上面重叠来超量召唤」。主阶 1 还没打，这个条件根本不成立，
-		//   原来那条 M1 分支实际上永远发不出来（就算引擎列进可召唤表也会被服务器拒绝）。
-		//   ⇒ 整段 M1 分支删掉，只保留 M2。（`ShouldZeusOwnTurn` 随之不再被调用，函数留着备查。）
-		return false;
+		if (Duel.Phase != DuelPhase.Main1) return false;
+
+		// ★ v5.27：M1 刚叠出来的重铠，② 还没发（SpSummon 段在 Activate 段之前）→ 先让它拆，别立刻叠走。
+		ClientCard armorM1 = Bot.GetMonstersInMainZone()
+			.FirstOrDefault(c => c.IsFaceup() && c.IsCode(CardId.PhotonArmor));
+		if (armorM1 != null && armorM1.HasXyzMaterial(1) && _armorUsedTurn != Duel.Turn)
+		{
+			ClientCard preyM1 = PhotonArmorPrey();
+			if (preyM1 != null)
+			{
+				Log("天霆号 → M1 等重铠 ② 先拆「" + preyM1.Name + "」");
+				return false;
+			}
+		}
+
+		if (!ShouldZeusOwnTurn()) return false;
+		ClientCard baseXyz = BestZeusBase();
+		if (baseXyz == null) return false;
+		AI.SelectMaterials(new List<ClientCard> { baseXyz });
+		Log("叠 天霆号 ← " + baseXyz.Name);
+		return true;
 	}
 
 	// 叠天霆号的基底：★ 优先反物质龙（斩杀线的倒数第二层，M2 就是要叠在它身上），
 	// 其次光子咆哮，再次黑智天至，最后任意有素材的超量怪。
-	// ★ v6.09 用户口径（2026-10-27）：「天霆号不要重叠在自己场上的托勒密上」——
-	//   托勒密的 ② 是「拔 N 弹 N」，本身就是一个能反复用的干扰点，叠成天霆号只剩一次清场。
-	// ★ v6.09 用户口径：「不要拿大姐叠，同时要满足天霆号素材大于等于 2」——
-	//   大姐是 EX 区的全抗 + 把对方检索换成随机抽 1，站着的价值远大于当一次清场的燃料；
-	//   素材 < 2 的基底叠上去天霆号也发动不了 ①（拔 2），等于白送对面一张卡。
 	private ClientCard BestZeusBase()
 	{
 		return Bot.GetMonstersInMainZone()
-			.Where(c => c.IsFaceup() && c.HasType(CardType.Xyz) && c.HasXyzMaterial(2)
-				// ★ v6.10 用户口径：「超量怪兽有战斗过的话就能叠，如果没战斗过的话（一般是被对方阻止了），则不叠。」
-				&& AttackedThisTurn(c)
+			.Where(c => c.IsFaceup() && c.HasType(CardType.Xyz) && c.HasXyzMaterial(1)
 				&& !c.IsCode(CardId.Zeus)
-				&& !c.IsCode(CardId.Jackpot)
-				&& !c.IsCode(CardId.Omega7)
 				// ★ v5.91：阿莱斯哈特不能当素材 —— 它的价值全在「站在场上」：
 				//   ① 被送墓的卡改成除外（压墓地卡组）、② 每次除外吸 1 张当素材、③ 里侧除外。
 				//   叠成天霆号只换来一次清场，还把这三条全扔了。
@@ -4124,16 +3958,9 @@ public class RaiseMoonExecutor : DefaultExecutor
 			// v5.11：重铠是斩杀线最后一层（素材最多、且 ② 已经用完），优先叠成天霆号；
 			//   反物质龙不在卡组里了，但留着这一档以防换回来。
 			.OrderByDescending(c => c.IsCode(CardId.PhotonArmor) ? 4
+				: c.IsCode(CardId.Antimatter) ? 3
 				: c.IsCode(CardId.PhotonRoar) ? 2 : (c.IsCode(CardId.Irisfil) ? 1 : 0))
 			.FirstOrDefault();
-	}
-
-	// ★ v6.10：这只怪这回合进行过战斗吗（天霆号的替代召唤条件）。
-	private bool AttackedThisTurn(ClientCard c)
-	{
-		if (c == null) return false;
-		if (_attackedTurn != Duel.Turn) return false;
-		return _attackedThisTurn.Any(x => x == c);
 	}
 
 	// ★ v3.7 用户口径（大姐免疫）：
@@ -4199,14 +4026,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// 「解不掉的卡」（贴纸 / 无敌怪 / 打点压过我方）实际价值超过 1 张，按 +1 溢价算
 		int enemy = raw + (Util.GetProblematicEnemyCard() != null ? 1 : 0);
 
-		// ★ v6.27（replay 优化，20:45 那局）：「对方放着 1 张解不掉的卡 + 天霆号手里有 2 素材」，
-		//   这一整回合连问了 6 次，每次都判「不清，留着素材」—— 那张解不掉的卡就一直躺在对面。
-		//   病根：`ShouldZeusOwnTurn`（自己回合 M1 那套）本来有「有解不掉的卡就直接清」的豁免，
-		//   但对方回合走的是这张换账表，只认 `enemy >= 3`，永远轮不到它。
-		//   ⇒ 有 `GetProblematicEnemyCard` 时只看「不亏」（`enemy > loss`），不再要求对面铺开 3 张。
-		bool problem = Util.GetProblematicEnemyCard() != null;
-		bool worth = doomed ? enemy > loss
-			: (problem ? enemy > loss : (enemy >= 3 && enemy > loss + 1));
+		bool worth = doomed ? enemy > loss : (enemy >= 3 && enemy > loss + 1);
 
 		Log("天霆号 换账：对方 " + raw + " 张" + (enemy > raw ? "（+1 解不掉的卡）" : "")
 			+ "，我方会被一起拆 " + loss + " 张"
@@ -4271,6 +4091,14 @@ public class RaiseMoonExecutor : DefaultExecutor
 		//     更要等对方把场面摆出来、在自由时点用 C1 抽。
 		if (Card != null && Card.Location == CardLocation.Grave)
 		{
+			// ★ v6.30：小丑与锁鸟生效中 → 本回合双方都不能抽卡（`EFFECT_CANNOT_DRAW`），
+			//   墓地 ② 是「除外自身抽 1」，发了等于把这张永久除外换 0 张牌。
+			//   连「自己将被除外」那条抢开例外也一起关掉：反正抽不出来，抢开也只是提前送掉。
+			if (DrollAppliedThisTurn())
+			{
+				Log("辉煌 ② → 小丑与锁鸟生效中（本回合双方都不能抽卡）→ 不除外，留着");
+				return false;
+			}
 			// ★ v5.14 例外 / ★ v5.49 收紧：**只有「墓地这张自己将被除外」才算最后机会**。
 			//   「另开连锁」的前提是这张卡还在墓地；一旦被除外，② 连发动权都没有，
 			//   那个 C1 永远等不到。判据见 GraveSplendorDoomed()（只剩被对方取对象这一条）。
@@ -4682,9 +4510,43 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//   这时链尾是灵王，只看链尾会判成「不跟」，第二张白白错过（用户截图那一手）。
 	private bool IsEnemySearchInChain()
 	{
-		foreach (ClientCard c in Duel.CurrentChain)
-			if (c != null && c.Controller == 1 && RaiseMoonScriptWipe.TakesFromDeckToHand(c.Id)) return true;
+		foreach (ChainInfo info in Duel.CurrentChainInfo)
+		{
+			if (info == null || info.RelatedCard == null) continue;
+			if (info.ActivatePlayer != 1) continue;
+			if (IsCardActivation(info)) continue;    // ★ v6.32：这一环是「发动卡」本身，不检索
+			if (RaiseMoonScriptWipe.TakesFromDeckToHand(info.ActivateId)) return true;
+		}
 		return false;
+	}
+
+	// ★ v6.32（replay「2026-10-30 02-06-30」）：「发动这张卡」≠「发动它的检索效果」。
+	//   用户口径：「AI 为什么连锁剑斗兽场地的发动扔朔的持续抽卡效果，实际上对方还没发动检索效果吧？」
+	//   实证：对方 T1 拍「剑斗兽的斗技场-弗拉维圆形斗技场」(`script/c5063379.lua`) ——
+	//     e1 是纯 `EFFECT_TYPE_ACTIVATE`（**这张卡的发动本身，一个检索都不做**），
+	//     检索写在 e2（`EFFECT_TYPE_IGNITION` + `CATEGORY_TOHAND+CATEGORY_SEARCH`）。
+	//   而 `RaiseMoonScriptWipe.TakesFromDeckToHand()` 是**整卡粒度**（脚本里出现 CATEGORY_SEARCH 就算），
+	//   于是「拍场地」这一环也被当成检索 → 朔白挂 ●2，本回合唯一的名额花在一张还没检索的卡上。
+	//   判据用 `MSG_CHAINING` 的 desc（`ChainInfo.ActivateDescription`）：
+	//     · 0          → 这一环没写 `aux.Stringid`，是「卡的发动」（ACTIVATE 效果）；
+	//     · id<<4 | n  → 第 n 个具名效果。
+	//   ⚠️ desc == 0 也可能是「没写 SetDescription 的检索魔法」（`增援` 那种 e1 就带 CATEGORY_SEARCH），
+	//   所以只对 **场地 / 永续 / 装备** 这三类「检索另开起动效果」的卡才认定成「卡的发动」。
+	private static bool IsCardActivation(ChainInfo info)
+	{
+		if (info == null) return false;
+		if (info.ActivatePlayer != 1) return false;
+		if (info.ActivateDescription != 0) return false;
+		return info.HasType(CardType.Field) || info.HasType(CardType.Continuous)
+			|| info.HasType(CardType.Equip);
+	}
+
+	// 链上最后一环是不是对方「发动这张卡」本身（朔 / 大姐置换 都靠它避开空挂）。
+	private bool LastChainIsEnemyCardActivation()
+	{
+		IList<ChainInfo> infos = Duel.CurrentChainInfo;
+		if (infos == null || infos.Count == 0) return false;
+		return IsCardActivation(infos[infos.Count - 1]);
 	}
 
 	// ★ v5.76：这条连锁上最后那张（对方的）卡，效果会不会「从手牌特殊召唤」。
@@ -4770,7 +4632,8 @@ public class RaiseMoonExecutor : DefaultExecutor
 			{
 				if (ChainSearchNegatedByUs())
 				{
-					Log("大姐 替换检索 → 对方这条检索已被我方无效，替换无从生效 → 不发");
+					Log("大姐 替换检索 → 对方这条检索已被我方无效（链上：" + ChainNames()
+						+ "），替换无从生效 → 不发");
 					return false;
 				}
 				// ★ v5.36 用户口径：这条链上朔已经挂了「持续抽卡」（手牌很少才会走到那一步）——
@@ -4789,7 +4652,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 				//   但它接的是**我方大姐的结算**。置这个标记，让锁鸟这一手不接。
 				_jackpotReplacedSearch = true;
 				Log("大姐 替换检索（对方手牌 " + Enemy.Hand.Count + " 张 → 精准检索改成随机抽 1）");
-				Say("jackpotReplace", "你这效果不好看啊，我给你换一个");
 				return true;
 			}
 			// ★ v5.75 用户口径：「大姐在额外怪兽区不受效果影响呀，只会被战斗破坏的，
@@ -4814,18 +4676,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return true;
 		}
 
-		// ★ v6.43（用户 2026-10-27 问「大姐被战破是不是有概率不发动」）：
-		//   走到这里说明 `ActivateDescription == DescDrawByCost`（= id<<4|2，拔 1 素材抽 1）。
-		//   但战破送墓的那条（e7）**有时会被 core 归一成同一个 desc** ——
-		//   一旦如此，下面那句 `!Card.HasXyzMaterial(1)` 就会直接吞掉这次抽卡
-		//   （大姐已经躺在墓地，身上当然没有超量素材）。
-		//   ⇒ 先看卡在哪：卡在墓地 = 这是「被送去墓地抽 1」，无条件发；只有卡还在场上
-		//   才是真正的「拔 1 素材抽 1」，那时才需要素材。
-		if (Card != null && Card.Location == CardLocation.Grave)
-		{
-			Log("大姐 ③ 被送去墓地 → 抽 1（desc 被识别成 " + ActivateDescription + "，但卡在墓地 → 按送墓抽卡处理）");
-			return true;
-		}
 		if (Card == null || !Card.HasXyzMaterial(1)) return false;
 
 		// ★ v5.74 用户口径（推翻 v3.9 那个「自身将被拆除就抢开」的例外）：
@@ -4853,6 +4703,13 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 		// 自己回合：随时拔。抽上来的本家「被抽到时自跳」是开新连锁的诱发效果，
 		// 立刻就能跳下来接着做场，没什么好等的。
+		// ★ v6.30：小丑与锁鸟生效中 → 抽不出来（`EFFECT_CANNOT_DRAW` 双方、到回合结束），
+		//   这一发只会白扔 1 个超量素材。
+		if (DrollAppliedThisTurn())
+		{
+			Log("大姐 拔1抽1 → 小丑与锁鸟生效中（本回合双方都不能抽卡）→ 不拔，留着素材");
+			return false;
+		}
 		if (Duel.Player == 0)
 		{
 			// ★ v5.40：水母 combo 置顶的那张要留到对方回合 → 自己回合这次拔素材抽 1 压住。
@@ -4861,10 +4718,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 				Log("大姐 拔1抽1 → 群星① 置顶的那张要留给对方回合 → 这次不拔");
 				return false;
 			}
-			// ★ v6.11 用户口径（2026-10-27）：「当自己手牌有群星 + 其他任意抽 1 效果的本家，
-			//   先发动群星的置顶效果，然后发动其他的抽 1 效果。」
-			//   群星还没置顶时这一抽先压住 —— 先抽就等于抽在置顶之前，置顶那张白压。
-			if (HoldDrawForOrder()) return false;
 			Log("大姐 拔1抽1（自己回合）");
 			return true;
 		}
@@ -4965,28 +4818,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		if (Duel.Player == 1) return true;
 		if (EnemyThreatForBounty()) return true;
 		return EnemyHeavyBackrow();
-	}
-
-	// ★ v6.12：千金大奖这一手该不该为了「弹卡后斩杀」而攻击表示落地。
-	//   两个条件缺一不可：
-	//     ① 这一手本来就要弹卡（`ShouldBountyBounce`：对方回合 / 对方有威胁 / 后场重）；
-	//     ② 我方**其他**攻表怪打点合计 + 千金 1400 ≥ 对方 LP，而**少了这 1400 就不够**
-	//        （`others < lp && others + 1400 >= lp`）。
-	//   千金这时还没落地，`Bot.GetMonsters()` 里自然不含它，所以 `others` 就是「别人打的伤害」。
-	//   只在主阶 1 判 —— 主阶 2 出来已经没有攻击机会，攻表只是白送一个 1400 的靶子。
-	private bool BountyAttackForLethal()
-	{
-		if (Duel.Player != 0 || Duel.Turn <= 1) return false;
-		if (Duel.Phase != DuelPhase.Main1) return false;
-		if (!ShouldBountyBounce()) return false;
-
-		int others = 0;
-		foreach (ClientCard c in Bot.GetMonsters())
-			if (c != null && c.IsFaceup() && c.IsAttack()) others += c.Attack;
-
-		int lp = Enemy.LifePoints;
-		if (lp <= 0) return false;
-		return others < lp && others + 1400 >= lp;   // 1400 = 千金大奖的面板打点
 	}
 
 	private bool BountyActivate()
@@ -5132,6 +4963,23 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//   拔 1 素材 → 这个回合「同一次战斗阶段中最多可对怪兽攻击 2 次」。
 	//   ★ 判据是「打得过的怪有 2 只以上」，不是「对方有怪」：
 	//     只有 1 只怪时打两次没意义，纯亏 1 个素材，还白送 ① 的减半给下一次打脸。
+	private bool AntimatterActivate()
+	{
+		if (Card == null || Card.Location != CardLocation.MonsterZone) return false;
+		if (EffectNegated()) return false;
+		if (!Bot.GetMonstersInMainZone().Contains(Card)) return false;
+		if (!Card.HasXyzMaterial(1)) return false;
+		// ② 的 condition 是 aux.bpcon = 只能在战斗阶段。整个 BP 的 phase 值落在
+		// BattleStart(8) ~ Battle(0x80) 之间（含 BattleStep / Damage / DamageCal），Main2(0x100) 已经超出。
+		if (Duel.Phase < DuelPhase.BattleStart || Duel.Phase > DuelPhase.Battle) return false;
+
+		int beatable = Enemy.GetMonsters()
+			.Count(c => !c.IsFaceup() || c.Attack <= Card.Attack);
+		if (beatable < 2) return false;
+
+		Log("反物质龙 ② 拔1 → 本回合可打怪兽两次（可打 " + beatable + " 只）");
+		return true;
+	}
 
 	// 天霆号 ①：QUICK_O + EVENT_FREE_CHAIN，脚本里**没有 SetCountLimit**，
 	//   cost 是硬拔 2 个素材（`RemoveOverlayCard(tp,2,2)`）→ 素材够就能在同一连锁上连开。
@@ -5255,9 +5103,31 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 	// 巨眼 ①：拔 1 抢怪。发动当回合这张卡不能攻击 → 只在自己回合主阶（战前）做，
 	// 抢过来的怪当回合就能参与进攻（被抢的那只没有攻击限制）。
+	private bool BigEyeActivate()
+	{
+		if (Card == null || Card.Location != CardLocation.MonsterZone) return false;
+		if (!Card.HasXyzMaterial(1)) return false;
+		if (Duel.Player != 0) return false;
+		ClientCard prey = StealTarget();
+		if (prey == null) return false;
+		_stealTarget = prey;
+		Log("巨眼 ①夺取 " + prey.Name + " 的控制权");
+		return true;
+	}
 
 	// 混沌大西洲 ①：把对方 1 只怪兽装备过来（+1000 攻）。
 	// ★ 一回合只有 1 次，且发动过就没有伤害了 —— 自己回合解完场就收手，不重复开。
+	private bool ChaosAtlandisActivate()
+	{
+		if (Card == null || Card.Location != CardLocation.MonsterZone) return false;
+		if (!Card.HasXyzMaterial(1)) return false;
+		if (Duel.Player != 0) return false;
+		ClientCard wall = EnemyWall();
+		if (wall == null) return false;
+		_chaosTarget = wall;
+		Log("混沌大西洲 ①装备 " + wall.Name);
+		return true;
+	}
 
 	// 托勒密 ②：拔 N 弹 N（回卡组）。对方回合也开 —— 这才是它站场的意义。
 	// ★ 弹的是「怪兽」，所以以对方怪兽数为上限；一只都没有就不开（空拔纯浪费素材）。
@@ -5274,7 +5144,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		_omegaTargets = targets;
 		AI.SelectNumber(targets.Count);
 		Log("托勒密 ② 拔" + targets.Count + " 弹" + targets.Count + " 只怪兽回卡组");
-		SayBounce("托勒密");
 		return true;
 	}
 
@@ -5356,7 +5225,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		_utopiaPending = true;
 		_utopiaTarget = target;
 		Log("No.76 ③ 吸对方墓地 → " + (target?.Name ?? "?") + "（" + reason + "）");
-		Say("steal", "这张卡不适合你，还是我用吧");
 		return true;
 	}
 
@@ -5388,6 +5256,12 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 	// 食兽：② 对方发动通常/速攻魔法 → 把那张卡吸成超量素材并免疫；
 	//      ③ 结束阶段把素材里的魔法盖回来。两条都是纯赚，问就发。
+	private bool ChersibActivate()
+	{
+		if (Card == null || Card.Location != CardLocation.MonsterZone) return false;
+		Log("食兽 效果发动（吸魔法 / 结束阶段盖回）");
+		return true;
+	}
 
 	// ================= 钩子 =================
 
@@ -5462,14 +5336,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 	// 两只 R7 的表示形式：
 	//   · 自己回合（先攻首回合除外）→ 攻击表示，要抢血；
 	//   · 对方回合 / 先攻首回合 → 守备表示，千金大奖 2800、大姐 2100，对方得先把屁股打穿。
-	// ★ v6.34 用户口径（2026-10-27）：「比赛 G1 升月猜拳赢，**选后攻**。」
-	//   这副卡组后攻更强（手牌抽卡点多、反击牌厚），所以走到「选先后攻」这一步时固定要后攻。
-	//   注意这不是「故意输猜拳」—— 猜拳照常随机赢，赢下来之后把先攻让给对面。
-	public override bool OnSelectHand()
-	{
-		return false;   // false = 要后攻（GameBehavior.OnSelectTp 里 false → TP_RESULT 0）
-	}
-
 	public override CardPosition OnSelectPosition(int cardId, IList<CardPosition> positions)
 	{
 		// ★ v5.59 用户口径：「升月回合如果发动陨石的话，如果解放的怪攻击力总和大于 3000，
@@ -5481,20 +5347,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		{
 			_nibiruBodyDefence = false;
 			Log("陨石本体 → 守备表示（解放怪攻击力合计 > 3000，对面衍生物更大）");
-			return CardPosition.FaceUpDefence;
-		}
-
-		// ★ v6.21 用户口径（2026-10-27，replay 优化3）：「① 主要阶段 2 特殊召唤的菈碧不要攻击表示；
-		//   ② 主要阶段 2 特殊召唤的千金大奖不要攻击表示。」
-		//   理由：战阶已经过完，主阶 2 出来的怪这回合**一次都打不出去**，攻表只是把 700 / 1400 的
-		//   守备值白送给对面当靶子。放在最前面判，压过下面 `SafeToAttack` / 抢血模式那些攻表口子
-		//   （它们在主阶 2 时仍会命中，因为判据只看了「对方前场压不压得住」）。
-		if (Duel.Phase == DuelPhase.Main2
-			&& (cardId == CardId.Rabi || cardId == CardId.Bounty)
-			&& positions != null && positions.Contains(CardPosition.FaceUpDefence))
-		{
-			Log((cardId == CardId.Rabi ? "翼·菈碧" : "千金大奖")
-				+ " 主阶 2 → 守备表示（战阶已过，攻表这回合打不出去，只是白送靶子）");
 			return CardPosition.FaceUpDefence;
 		}
 
@@ -5582,10 +5434,10 @@ public class RaiseMoonExecutor : DefaultExecutor
 			if (positions.Contains(other)) return other;
 		}
 		// 光子咆哮 4500（战阶 5300）/ 反物质龙 4000（战阶 4900）：主要怪兽区的打点，站着就是要打人（守备 0 一碰就碎）
-		if (cardId == CardId.PhotonRoar
+		if ((cardId == CardId.PhotonRoar || cardId == CardId.Antimatter)
 			&& positions.Contains(CardPosition.FaceUpAttack))
 		{
-			Log("光子咆哮 攻击表示");
+			Log((cardId == CardId.Antimatter ? "反物质龙" : "光子咆哮") + " 攻击表示");
 			return CardPosition.FaceUpAttack;
 		}
 
@@ -5642,12 +5494,16 @@ public class RaiseMoonExecutor : DefaultExecutor
 			}
 		}
 
-		// 针对性 R7（托勒密 2700 / No.76 2700）：
+		// 针对性 R7（巨眼 2600 / 混沌大西洲 3300 / 托勒密 2700 / No.76 2700 / 食兽 2100）：
 		// 只有「自己回合主阶 1 且打得过」才攻击抢血；
 		// 主要阶段 2 出的托勒密一律守备 —— 它是要活到对方回合去弹卡的，2700 的屁股比 2700 的打点值钱。
-		if (cardId == CardId.Omega7 || cardId == CardId.Utopia76)
+		if (cardId == CardId.BigEye || cardId == CardId.ChaosAtlandis || cardId == CardId.Omega7
+			|| cardId == CardId.Utopia76 || cardId == CardId.Chersib)
 		{
-			int atk = 2700;
+			int atk = cardId == CardId.BigEye ? 2600
+				: cardId == CardId.ChaosAtlandis ? 3300
+				: cardId == CardId.Chersib ? 2100
+				: 2700;
 			bool attack = Duel.Player == 0 && Duel.Phase == DuelPhase.Main1 && SafeToAttack(atk);
 			CardPosition want = attack ? CardPosition.FaceUpAttack : CardPosition.FaceUpDefence;
 			if (positions.Contains(want))
@@ -5659,18 +5515,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 		if (cardId == CardId.Bounty || cardId == CardId.Jackpot)
 		{
-			// ★ v6.12 用户口径（2026-10-27）：「如果千金大奖超量召唤时需要发动效果弹卡，
-			//   且这回合战斗阶段对方正好加上这 1400 攻击力能打死的话，
-			//   则千金大奖攻击表示特殊召唤、发动效果弹卡且战斗抢伤害，否则守备表示特殊召唤。」
-			//   这一条专治「对方前场硬、但弹掉之后 1400 正好是最后一刀」的场面 ——
-			//   下面那句 `SafeToAttack(1400)`（对方前场压得住才攻表）在这种情况下不成立，
-			//   所以必须排在它前面单独判。
-			if (cardId == CardId.Bounty && BountyAttackForLethal())
-			{
-				Log("千金大奖 攻击表示（超量召唤时就要弹卡，且 +1400 正好补上斩杀）");
-				return CardPosition.FaceUpAttack;
-			}
-
 			int atk = cardId == CardId.Jackpot ? JackpotAtk : 1400;
 			bool wantAttack = Duel.Player == 0 && Duel.Turn > 1 && SafeToAttack(atk);
 			// ★ v5.62 用户口径：「两只 7 星战斗后，主要阶段 2 守备表示特殊召唤大姐。」
@@ -5802,6 +5646,81 @@ public class RaiseMoonExecutor : DefaultExecutor
 		if (!SafeToAttack(Card.Attack)) return false;
 		Log(Card.Name + " 转攻击");
 		return true;
+	}
+
+	// ★ v5.98 用户口径（replay 优化1：「托勒密是没有转攻击表示逻辑吗，如果这回合能抢战斗伤害
+	//   就要转攻击，和别的怪的战斗逻辑一样」）。
+	//   针对性 R7 五张（巨眼 2600 / 混沌大西洲 3300 / 托勒密Ω7 2700 / No.76 2700 / 食兽 2100）
+	//   原先一条翻攻规则都没有：ReposToAttack 只绑了千金大奖和大姐；ReposTradeUp 首句
+	//   `if (Card.Attack >= 2000) return false;`；ReposPressEmptyField 白名单只有 6 只本家下级。
+	//   唯一兜底的基类 DefaultMonsterRepos 对它们有两处失效：
+	//     ① 判据 `Card.Attack > Card.Defense` 对 2700/2700 这种**攻守同值**恒为假（Ω7 最吃亏）；
+	//     ② 另一条 `Card.Attack >= Util.GetBestPower(Enemy)` 取的是对方**守备力**（AIUtil.cs:34），
+	//        对方立个高守备墙就为假。
+	//   ⇒ 改成「这回合实际能打出战斗伤害就翻」，打点一律用 `Card.Attack` 实时取值
+	//     （Ω7 在自己墓地星骑士 7 种类以上时是 5400，写死 2700 会在那种局判错）。
+	//   不翻的代价不只是少打一次：若场上只有它一只可战，`GoToBattle` 会因
+	//   `GetMonsters().Where(IsAttack())` 为空直接 return false → **整回合不进战阶**。
+	private bool ReposR7ToAttack()
+	{
+		if (Duel.Player != 0 || Card == null) return false;
+		if (Duel.Phase != DuelPhase.Main1) return false;   // 主阶 2 后面没有战阶，翻攻只等于白挨打
+		if (Duel.Turn <= 1) return false;                  // 先攻首回合不能攻击
+		if (!Card.IsFaceup() || !Card.IsDefense()) return false;
+
+		int atk = Card.Attack;
+		if (atk <= 0) return false;
+
+		string nm = Card.IsCode(CardId.Omega7) ? "托勒密Ω7" : Card.Name;
+		List<ClientCard> em = Enemy.GetMonsters().Where(c => c != null).ToList();
+
+		// ① 对方前场空 → 直击。攻守同值时守备挡不到任何东西（被打死照样吃同样的血），翻攻纯赚。
+		if (em.Count == 0)
+		{
+			Log(nm + " 转攻击 → 对方空场，" + atk + " 直击");
+			return true;
+		}
+
+		// ② 对方有里侧怪 → 打点未知，不赌（与 ReposPressEmptyField 的既有取舍一致）
+		if (em.Any(c => !c.IsFaceup()))
+		{
+			LogOnceNoFlip(nm + " 不转攻击 → 对方有里侧怪，打点未知");
+			return false;
+		}
+
+		// ③ 对方全场打点都压不过我 → 打得到、也打不回来，零风险
+		int best = em.Max(c => c.Attack);
+		if (atk > best)
+		{
+			Log(nm + " 转攻击 → 对方最高 " + best + " 打不过 " + atk + "，翻攻零风险");
+			return true;
+		}
+
+		// ④ 对方有压得住我的怪：只有「这回合能战破它、且战破后剩下的怪打不过我」才翻。
+		//    否则翻过去既打不穿它，下回合还要白吃一次战伤 —— 不如留着屁股挡。
+		ClientCard threat = em.Where(c => c.Attack >= atk && CanBeatBy(atk, c))
+			.OrderByDescending(c => c.Attack).FirstOrDefault();
+		if (threat != null)
+		{
+			int rest = em.Where(c => c != threat).Select(c => c.Attack).DefaultIfEmpty(0).Max();
+			if (rest < atk)
+			{
+				Log(nm + " 转攻击 → 本回合能战破「" + threat.Name + "」，战破后对方最高 " + rest + " 打不过我");
+				return true;
+			}
+		}
+
+		LogOnceNoFlip(nm + " 不转攻击 → 对方最高 " + best + " ≥ " + atk + "，翻了打不穿还白吃战伤");
+		return false;
+	}
+
+	// 上面那条「不翻」的理由每回合只打一次：Repos 执行器在每次 idle 询问都会被调到，
+	// 不节流的话一个主阶能刷几十行（本文件已有不少「同一决定打 3 遍」的噪音）。
+	private void LogOnceNoFlip(string msg)
+	{
+		if (_r7NoFlipLogged) return;
+		_r7NoFlipLogged = true;
+		Log(msg);
 	}
 
 	// ★ v4.6：低攻高守的本家下级（翼·菈碧 700/2100、朔·斯奎兹 700/1400）。
@@ -5979,13 +5898,8 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 	// 这只怪有没有「打了不亏」的目标：打穿某只 / 能直接攻击。
 	// 不满足就跳过它，别让 700 的怪去撞 2800 的墙（自我伤害 + 白送一只怪）。
-	private bool HasLegalAttack(ClientCard attacker, IList<ClientCard> defenders)
+	private static bool HasLegalAttack(ClientCard attacker, IList<ClientCard> defenders)
 	{
-		// ★ v6.17：No.76 撞同属性大怪不会死 → 这种「明知打不过也要撞」的一拳算合法攻击。
-		if (attacker != null && attacker.IsCode(CardId.Utopia76) && attacker == Card
-			&& Utopia76SafePrey() != null)
-			return true;
-
 		if (attacker == null) return false;
 		if (defenders == null || defenders.Count == 0) return attacker.CanDirectAttack;
 		int atk = attacker.GetAttackPower();
@@ -6014,33 +5928,8 @@ public class RaiseMoonExecutor : DefaultExecutor
 	// 对方站一堆杂鱼时会先去啃杂鱼，把救援猫这种引擎留在场上。
 	public override BattlePhaseAction OnSelectAttackTarget(ClientCard attacker, IList<ClientCard> defenders)
 	{
-		// ★ v6.10：记下「这回合打过架的我方怪」，供天霆号在 M2 判断能不能重叠召唤（见 `_attackedThisTurn`）。
-		//   被问「打谁」就说明这一拳要出去了；真被对方打断也照样算「进行过战斗」。
-		if (attacker != null && attacker.Controller == 0)
-		{
-			if (_attackedTurn != Duel.Turn)
-			{
-				_attackedTurn = Duel.Turn;
-				_attackedThisTurn.Clear();
-			}
-			if (!_attackedThisTurn.Any(x => x == attacker)) _attackedThisTurn.Add(attacker);
-		}
-
 		if (attacker != null && defenders != null && Duel.Player == 0)
 		{
-			// ★ v6.17：No.76 有「同属性、打不过但不会被打死」的目标 → 这一拳就撞它。
-			//   `CanBeatBy` 要求攻击力严格大于目标，这种「打不过的撞」它放不进来，所以单独放在最前面。
-			if (attacker.IsCode(CardId.Utopia76) && Card != null && attacker == Card)
-			{
-				ClientCard safe = Utopia76SafePrey();
-				if (safe != null)
-				{
-					Log(attacker.Name + " 攻击目标 → 「" + safe.Name
-						+ "」（同属性 → 不会被战破；撞完 M2 叠天霆号）");
-					return AI.Attack(attacker, safe);
-				}
-			}
-
 			int atk = attacker.GetAttackPower();
 			// ★ v5.31：目标里有「战斗诱饵」（连接栗子球这类，攻击宣言时解放自身把攻击力变 0）
 			//   且打得穿 → 这一拳就砸它。顺序已经把最不值钱的攻击者排在前面（OnSelectAttacker），
@@ -6100,77 +5989,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return false;
 		}
 		Log("天霆号 转攻击（自己回合主阶 1，打点 " + Card.Attack + " 压得住对方）");
-		return true;
-	}
-
-	// ★ v6.16：对方回合加速出来的 R7，在我方回合主阶 1 翻攻抢伤害。
-	//   `OnSelectPosition` 里这几只只在「自己回合主阶 1」才攻表 —— 对方回合被菈碧 ③ 加速出来时
-	//   一律守备落地（那是防守回合，合理），但我方回合要有人把它们翻回来。
-	//   判据用 `SafeToAttack(自己打点)`：对方前场空 / 表侧怪全打不过 → 翻攻零代价。
-	//   翻攻打完主阶 2 照样能叠天霆号（v6.10 的「基底这回合战斗过」反而因此满足）。
-	// ★ v6.17 用户口径（2026-10-27，replay 优化1）：「如果 NO.76 素材中有对方场上攻击力 ≥ NO.76 的怪兽
-	//   相同的属性（此时 NO.76 不会被战斗破坏），则 NO.76 转攻击表示和该怪兽战斗，
-	//   然后主要阶段 2 后 NO.76 叠天霆号。」
-	//   卡理（`c92015800`）：② 这张卡不会被和持有这张卡相同属性的怪兽的战斗破坏；
-	//   ① 又能拔 1 素材把「这张卡自身的属性」变成那个素材的属性 ⇒ 素材里含着对应属性时，
-	//   撞同属性的大怪不会死。这一撞的目的**不是打死它**（它 ATK ≥ 2700，打不死），
-	//   而是让 No.76 满足「这回合进行过战斗」，主阶 2 才有资格叠天霆号（v6.10 的条件）。
-	//   注意 `Overlays` 存的是**卡号**（List<int>），属性要过 `NamedCard.Get` 查。
-	private ClientCard Utopia76SafePrey()
-	{
-		if (Card == null || !Card.IsCode(CardId.Utopia76)) return null;
-		if (Card.Overlays == null || Card.Overlays.Count == 0) return null;
-
-		// ★ v6.18 用户口径（2026-10-27）：「目的是让 No.76 进行过战斗 —— 如果对方场上有攻击力
-		//   或者守备力比 No.76 低的怪兽，那当然是让 No.76 和那只怪兽战斗；前面说的（同属性安全撞）
-		//   一般是指对方场上只有一只、且 ATK ≥ 2700、属性与某个超量素材相同。」
-		//   ⇒ 这个方法只做「没有正常目标时」的**兜底**，两个前置：
-		//     ① 对方**没有**能打赢的怪（攻/守都 ≥ 2700）—— 有的话返回 null，交给普通目标选择；
-		//     ② 对方表侧怪兽**只剩 1 只**，才允许这一撞。
-		List<ClientCard> foes = Enemy.GetMonsters()
-			.Where(e => e != null && e.IsFaceup() && e.HasType(CardType.Monster)).ToList();
-		if (foes.Count == 0) return null;
-
-		foreach (ClientCard e in foes)
-		{
-			int power = e.IsDefense() ? e.Defense : e.Attack;
-			if (power < Card.Attack) return null;   // 有打得过的 → 走正常路径，不撞
-		}
-
-		if (foes.Count != 1) return null;           // 还有好几只打不过的 → 不硬撞，保持守备
-
-		ClientCard only = foes[0];
-		if (only.Attack < Card.Attack) return null;
-		foreach (int id in Card.Overlays)
-		{
-			YGOSharp.OCGWrapper.NamedCard nc = YGOSharp.OCGWrapper.NamedCard.Get(id);
-			if (nc != null && (nc.Attribute & only.Attribute) != 0) return only;
-		}
-		return null;
-	}
-
-	private bool ReposR7ToAttack()
-	{
-		if (Duel.Player != 0 || Card == null) return false;
-		if (Duel.Phase != DuelPhase.Main1) return false;
-		if (!Card.IsFaceup() || !Card.IsDefense()) return false;
-		if (!Card.IsCode(CardId.Utopia76) && !Card.IsCode(CardId.Omega7)) return false;
-
-		// ★ v6.17：No.76 有「同属性、打不过但不会被打死」的目标时，翻攻去撞 —— 这是它的专用收益。
-		if (Card.IsCode(CardId.Utopia76))
-		{
-			ClientCard safe = Utopia76SafePrey();
-			if (safe != null)
-			{
-				Log("No.76 转攻击（素材里有同属性 → 撞「" + safe.Name + "」不会被战破，打完 M2 叠天霆号）");
-				return true;
-			}
-		}
-
-		if (!SafeToAttack(Card.Attack)) return false;
-
-		string nm = Card.IsCode(CardId.Utopia76) ? "No.76" : "托勒密Ω7";
-		Log(nm + " 转攻击（自己回合主阶 1，打点 " + Card.Attack + " 压得住对方 → 抢伤害）");
 		return true;
 	}
 
@@ -6235,33 +6053,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 				return true;
 			}
 		}
-
-		// ★ v6.08 用户口径（2026-10-27）：「换，换掉对方的怪兽拉开资源差血赚。」
-		//   上面那条 `FindTradeTarget` 只认**高价值**目标（资源引擎 / 额外怪 / ≥2000 / 只剩一只），
-		//   于是「对方站一排 1500 的小怪」时一只都不算数，整回合不进战阶 —— 白白浪费一个战斗阶段。
-		//   现在放宽：只要能战破对方**任意一只表侧怪**就进战阶。
-		foreach (ClientCard c in mine)
-		{
-			ClientCard any = Enemy.GetMonsters()
-				.Where(e => e != null && e.IsFaceup() && CanBeatBy(c.Attack, e))
-				.OrderByDescending(e => e.Attack)
-				.FirstOrDefault();
-			if (any != null)
-			{
-				Log("进战阶（" + c.Name + " " + c.Attack + " 能换掉对方「" + any.Name + "」→ 拉开资源差）");
-				return true;
-			}
-		}
-
-		// ★ v6.08 同理：对方前场只剩**盖怪**时也算「有东西可打」——
-		//   `OnSelectAttacker` 里「只剩盖怪 → 最弱那只先试探」那条分支，前提是要先进得来战阶段。
-		//   守备力看不见，但拿最弱的怪去撞是稳赚的（换掉一张未知卡 + 探出它的守备力）。
-		if (Enemy.GetMonsters().Any(e => e != null))
-		{
-			Log("进战阶（对方前场只剩盖怪 → 最弱那只先上去试探）");
-			return true;
-		}
-
 		return false;
 	}
 
@@ -6414,7 +6205,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 			if (pick != null)
 			{
 				Log("刃/灯 ② 弹卡选 -> " + pick.Name);
-				SayBounce("刃/灯");
 				return new List<ClientCard> { pick };
 			}
 		}
@@ -6444,7 +6234,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			if (_blazePending == 2 && allMine)
 			{
 				ClientCard pick = MatchTarget(cards, _blazeSacrifice)
-					?? cards.Where(c => c != null)
+					?? cards.Where(c => c != null && !c.IsCode(CardId.BlazeDragon))
 						.OrderBy(BlazeSacrificeCost).FirstOrDefault();
 				_blazePending = pick != null ? 1 : 0;
 				if (pick != null)
@@ -6637,7 +6427,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 			if (pick != null)
 			{
 				Log("阿莱斯哈特 ③ 里侧除外 -> " + pick.Name);
-				Say("steal", "这张卡不适合你，还是我用吧");
 				return new List<ClientCard> { pick };
 			}
 		}
@@ -6684,11 +6473,11 @@ public class RaiseMoonExecutor : DefaultExecutor
 			//   千金 ② 的弹卡对象不要选希耶娜 / 库露雪取对象的那张。」
 			//   刃 / 灯 的 ② 都是「特招成功时弹对方 1 张」，和千金 ②（同一个 EVENT_SPSUMMON_SUCCESS）
 			//   在同一时点触发；千金先把它弹回卡组底，它们那张就没了目标，白跳一只。
-			List<ClientCard> reserved = TribeBounceReserved(cards);
-			List<ClientCard> pool = reserved.Count == 0
+			ClientCard reserved = TribeBounceReserved(cards);
+			List<ClientCard> pool = reserved == null
 				? cards.ToList()
-				: cards.Where(c => !reserved.Contains(c)).ToList();
-			if (pool.Count == 0) pool = cards.ToList();   // 只剩那几张可弹 → 让给它们也没意义，照弹
+				: cards.Where(c => c != reserved).ToList();
+			if (pool.Count == 0) pool = cards.ToList();   // 只剩那一张可弹 → 让给它们也没意义，照弹
 			List<ClientCard> picks = pool.OrderByDescending(BountyPreyValue).Take(take).ToList();
 			_bountyBouncePending = 0;
 			if (picks.Count > 0)
@@ -6696,7 +6485,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 				// ★ v5.73：这一刻才是「效果真的弹了卡」—— 记下回合号，菈碧 ③ 之后不再叠千金大奖。
 				_bountyBouncedTurn = Duel.Turn;
 				Log("千金大奖 ② 弹卡选 -> " + string.Join(" / ", picks.Select(c => c.Name)));
-				SayBounce("千金大奖");
 				return picks;
 			}
 		}
@@ -6748,17 +6536,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			List<ClientCard> hand = cards.Where(c => c.Location == CardLocation.Hand).ToList();
 			ClientCard pick = fromCity ? PickCityReturnCard(hand) : null;
 			bool toTop = pick != null && _returnHandToTop;
-			if (pick == null)
-			{
-				// ★ v5.99 用户口径：「未眠之城不要回手牌的单张落胤与圣女，复数张才回。」
-				//   所以未眠 ② 的兜底候选里要把「单张的落胤与圣女」剔掉；
-				//   帐 ② 那条线（`fromCity == false`）**不套**这条 —— 它是「返 1 张卡自跳」，
-				//   手里只剩那张时也得返，否则整只怪跳不下来。
-				IEnumerable<ClientCard> pool = fromCity
-					? hand.Where(c => !IsLoneFallen(hand, c))
-					: (IEnumerable<ClientCard>)hand;
-				pick = pool.OrderBy(HandCardValue).FirstOrDefault();
-			}
+			if (pick == null) pick = hand.OrderBy(HandCardValue).FirstOrDefault();
 			if (pick != null)
 			{
 				// lua 里 `Duel.SelectOption(最上面, 最下面)`：0 = 卡组最上面，1 = 最下面。
@@ -6773,8 +6551,18 @@ public class RaiseMoonExecutor : DefaultExecutor
 		return base.OnSelectCard(cards, min, max, hint, cancelable);
 	}
 
+	// 反物质龙 ② 的可选追加处理（Duel.SelectYesNo → MSG_SELECT_YESNO）：
+	//   「取除的超量素材是怪兽的场合，可以再把和那只怪兽相同种族的 1 只怪兽从卡组送去墓地」。
+	// ★ 一律不送。本卡组没有任何墓地利用，堆下去只是白少一张未来的抽卡，
+	//   还会把卡组构成暴露给对手。用户口径也是「此时可以不从卡组堆墓」。
+	//   desc 精确匹配 id<<4|2，不会误伤其它「是/否」询问。
 	public override bool OnSelectYesNo(int desc)
 	{
+		if (desc == DescAntimatterDump)
+		{
+			Log("反物质龙 ② → 不从卡组堆墓");
+			return false;
+		}
 		// ★ v5.55 用户口径（replay「墓地辉煌逻辑」：「它场上发动的辉煌把墓地的辉煌洗回卡组了」）：
 		//   墓地那张辉煌的 ②（除外自身抽 1）**还没用掉时**，① 的「可以让自己墓地的本家卡全部回到卡组」
 		//   一律选「否」。依据 c9362643.lua：② 的 `SetRange(LOCATION_GRAVE)` —— 一旦被洗回卡组，
@@ -6811,28 +6599,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 			_irisUsedTurn = -1;
 		}
 
-		// ===== v6.45：回合开始的台词判定（⑤⑥⑦⑩）=====
-		// ⑤ 准备打赢：对方 LP 已经落到我方场面打点以下
-		// ⑥ 准备打输：我方 LP ≤ 2000
-		// ⑦ 差 5000 以上准备输：⑥ 的加强版，优先级更高
-		int myAtk = TotalAttack();
-		if (Bot.LifePoints + 5000 <= Enemy.LifePoints && Bot.LifePoints <= 2000)
-			Say("lose5000", "呜呜呜叔叔我错了不要抽我了呜呜呜");
-		else if (Bot.LifePoints <= 2000)
-			Say("lose", "牌技这么好，叔叔一定是单身吧？");
-		else if (myAtk > 0 && myAtk >= Enemy.LifePoints)
-			Say("win", "玩游戏王几年了？怎么跟玩了几天差不多啊，杂鱼");
-
-		// ⑩ 自己手牌 + 场上 ≥6，对方手牌 + 场上 ≤3
-		int myCards = Bot.Hand.Count(c => c != null) + Bot.GetMonsters().Count(c => c != null)
-			+ Bot.SpellZone.Count(c => c != null);
-		int hisCards = Enemy.Hand.Count(c => c != null) + Enemy.GetMonsters().Count(c => c != null)
-			+ Enemy.SpellZone.Count(c => c != null);
-		if (myCards >= 6 && hisCards <= 3)
-			Say("starve", "缺牌了？求我啊，没准我能让你抽一张呢");
-
-		_lastEnemyMove = DateTime.Now;
-
 		// ★ v5.72：我方第一个回合定下「先攻 / 后攻」，整局不再变。
 		//   `Duel.Turn == 1` 且轮到我方 = 我方先攻；否则我方第一个回合是 T2 = 后攻。
 		if (_goingFirst == 0 && Duel.Player == 0)
@@ -6846,6 +6612,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		_returnHandToTop = false;     // ★ v5.22
 		_cityWaitJackpotLogged = false;   // ★ v5.23：等大姐的日志按回合刷一次
 		_jackpotWaitLogged = false;       // ★ v5.62：「主阶 1 先不叠大姐」的日志也按回合刷一次
+		_r7NoFlipLogged = false;          // ★ v5.98：R7「不转攻击」的理由按回合刷一次
 		_splendorTarget = 0;
 		_splendorOwnUsed = false;
 		_splendorOppUsed = false;
@@ -6898,6 +6665,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// v4.4：水母是手坑，效果只持续「发动的那个回合」，跨回合即失效（RESET_PHASE+PHASE_END）。
 		//   每个回合开始清零即可；真正的置位在 OnChaining（对方发动的那一刻）。
 		_jellyfish = false;
+		_jellyfishCount = 0;     // ★ v6.33：水母张数同样按回合清零（跨局也不会残留）
 		// ★ v5.46：增殖的 G 同样只持续发动的那个回合 → 每回合开始清零
 		_maxxC = false;
 		_comboTopHeld = false;   // ★ v5.70：牌堆顶压着干扰本家 → 本回合抽卡让位；跨回合即失效
@@ -6917,6 +6685,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		_drollTurn = -1;
 		_cityDrollLogged = false;
 		_cityBurialLogged = false;   // ★ v5.43：未眠给副葬让路的日志也按回合重置
+		_cityUsedThisTurn = false;   // ★ v6.28：未眠 ② 的「本回合用过了」按回合失效
 
 		base.OnNewTurn();
 	}
@@ -6947,26 +6716,10 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// 对方重新起一条链 = 一个独立的新动作；大姐那次替换的「抽卡归属」到此作废。
 		if (player == 1) _jackpotReplacedSearch = false;
 
-		// ===== v6.45：对方丢特定手坑时的台词（⑪⑫）=====
-		if (player == 1 && card != null)
-		{
-			if (card.IsCode(CardId.MaxxC) || card.IsCode(CardId.LockBird) || card.IsCode(CardId.LockBirdAlt))
-				Say("enemyG", "工作压力，家庭阴影，单身而立，ε=(´ο｀*)))唉，想到这些，我也不觉得你运气好了");
-			if (card.IsCode(CardId.Jellyfish))
-				Say("enemyMulcharmy", "哟，吃顿好的吧");
-		}
-
-		// ★ v6.46 用户口径（改 ⑭）：「对方 30 秒以上没操作，下次**动的时候**说这句。」
-		//   WindBot 是事件驱动的，对方静止时收不到任何回调 → 不可能实时喊；
-		//   等它下一次上链，用「距上次动作的间隔」判断，晚一句但一定说得出口。
-		if (player == 1 && (DateTime.Now - _lastEnemyMove).TotalSeconds >= 30)
-			Say("slow", "这么半天终于动了吗，你小头可比大头快多了，杂鱼");
-
-		_lastEnemyMove = DateTime.Now;
-
 		if (player == 1 && card != null && card.IsCode(CardId.Jellyfish))
 		{
 			_jellyfish = true;
+			_jellyfishCount++;      // ★ v6.33：同名卡每张各挂一条「从手牌上怪 → 对方抽 1」，必须计数
 			// ★ v5.41：口径（用户原话）——「中了水母后如果你手牌有辉煌，那么可以直接盖放陷阱
 			//   （有群星的话置顶照旧），其他动作一律不做，然后回合结束等对方动作」。
 			//   所以这里只看**手里有没有辉煌**：有就走「盖辉煌 + 群星①置顶 → 直接过」，
@@ -6974,11 +6727,14 @@ public class RaiseMoonExecutor : DefaultExecutor
 			//   注意此刻往往还是**对方回合**（水母是手坑），`_holdMode` 恒 false，
 			//   所以日志不能拿 `_holdMode` 当判据，要看手牌。
 			bool hasSplendorInHand = Bot.Hand.Any(c => c != null && c.IsCode(CardId.Splendor));
-			Log("水母 → 对方发动（本回合我方从手牌召唤/特招 → 对方抽 1） hold=" + _holdMode
+			Log("水母 → 对方发动（本回合第 " + _jellyfishCount + " 张：我方每从手牌召唤/特招 1 只 → 对方抽 "
+				+ _jellyfishCount + "） hold=" + _holdMode
 				+ " combo=" + _jellyfishCombo
 				+ (hasSplendorInHand
 					? "（手里有陷阱辉煌 → 我方回合只盖它 + 群星①置顶，其余动作一律不做，等对方回合用辉煌拉大姐）"
-					: "（无陷阱辉煌 → 铺到「大姐在场」或「本家 2 只」就停手，直接叠大姐；有群星则置顶留到对方回合）"));
+					: _jellyfishCount >= 2
+						? "（★ 已叠 " + _jellyfishCount + " 张 → 本回合一只都不从手牌上：只发库露雪③ 丢弃抽卡 / 未眠② / 副葬这类不特招的效果，抽到本家也不跳）"
+						: "（只有 1 张 → 还能跳 1 只西艾萝（自跳抽 1 抵掉对方那一抽）；铺到 2 只本家就停）"));
 		}
 
 		// ★ v5.46：增殖的 G —— 手坑，效果持续到本回合结束（RESET_PHASE+PHASE_END），进同一套妥协流程。
@@ -7006,17 +6762,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 	public override void OnMove(ClientCard card, int previousControler, int previousLocation, int currentControler, int currentLocation)
 	{
 		base.OnMove(card, previousControler, previousLocation, currentControler, currentLocation);
-
-		// ===== v6.45：抽卡计数（①②）=====
-		// 卡从**卡组 → 我方手牌**就算一次「我方抽卡」。用 `OnMove` 一处覆盖全部抽卡来源，
-		// 不用在每个抽卡执行器里埋点。
-		// ★ 已知偏差：从卡组**检索**加入手卡也会走这条路（本家没有检索卡，实际几乎都是真抽卡）。
-		if (currentControler == 0
-			&& previousLocation == (int)CardLocation.Deck
-			&& currentLocation == (int)CardLocation.Hand)
-		{
-			CountDraw();
-		}
 
 		// ★ v5.73：我方大姐（一掷乾坤）在战斗中被对方打掉 → 从怪兽区进墓。
 		//   记下回合号，菈碧 ③ 才能把它补回来
@@ -7124,30 +6869,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		bool fromHand = Card.Location == CardLocation.Hand;
 		if (Duel.Player != 0 && fromHand && !InChain()) return false;
 
-		// ★ v6.03 用户口径（2026-10-27）：「当后场的落胤与圣女要被对方效果从场上离开时，
-		//   连锁发动，优先从额外堆白界龙（没有就堆黑龙），炸对方场上的一张表侧卡片。」
-		//   和辉煌 ① 的 `doomed` 同一个道理：这是**盖着的速攻魔法**，被拆掉就什么都没了
-		//   （回卡组 / 除外 / 破坏都拿不回来）—— 抢在它离场之前用掉，换成「额外堆墓 + 炸对方一张表侧」。
-		//   判据：① 对方取它做对象（旋风 / 沙尘 / 双龙卷这类取对象的拆后场）；
-		//         ② 对方发动不取对象的群体清场且会拆魔陷区（大岚 / 羽毛扫 / 天霆号）。
-		//   只拆怪兽的不算 —— 盖着的速攻魔法不在怪兽区。
-		if (Card.Location == CardLocation.SpellZone)
-		{
-			bool doomed = (!Card.IsFaceup() && Util.IsChainTarget(Card))
-				|| ChainHasZoneWipe(RaiseMoonScriptWipe.SpellTrap);
-			if (doomed)
-			{
-				ClientCard prey = FallenEmergencyPrey();
-				if (prey == null)
-				{
-					Log("落胤与圣女 自身将被除去，但对方场上没有可炸的表侧卡 → 这一手发不出来");
-					return false;
-				}
-				return FallenBegin(1, prey,
-					"自身将被除去 → 连锁抢发：额外堆 " + FallenDumpName() + "，炸对方「" + prey.Name + "」");
-			}
-		}
-
 		return Duel.Player == 0 ? FallenOwnTurn() : FallenEnemyTurn();
 	}
 
@@ -7164,89 +6885,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			}
 			return false;
 		}
-
-		// ★ v6.04 用户口径（2026-10-27）：「落胤与圣女自己回合的自由时点添加一个辅助斩杀的逻辑 ——
-		//   如果破坏了对方场上的某只怪兽之后升月能斩杀对方，则要发动破坏那只怪兽。」
-		//   走 ●1（额外堆墓 + 以那张表侧怪为对象破坏），排在这个自由时点的「●2 苏生」之前：
-		//   苏生是补资源、斩杀是直接赢，能赢就先赢。
-		ClientCard lethal = FallenLethalPrey();
-		if (lethal != null)
-		{
-			return FallenBegin(1, lethal, "辅助斩杀：炸掉「" + lethal.Name
-				+ "」后这回合打点够 " + Enemy.LifePoints + " → 走 ●1");
-		}
-
-		// ★ v6.05 用户口径（2026-10-27）：「T3 以后的自己回合，如果自己墓地有白界龙、对方场上有两只怪兽以上，
-		//   则要发动落胤与圣女丢黑龙破坏其中一只，然后黑龙和白界龙回到额外发动效果弹走另一只。」
-		//   这是个固定两段 combo：
-		//     ① 落胤与圣女 ●1 —— cost **指定堆黑龙**（不是默认的白界龙），炸对方一只；
-		//     ② 黑龙进墓后发动 ②（`c78397661` e2，IGNITION，自己主阶）—— 把
-		//        「墓地/除外的白界龙」＋「场上的另一只」＋「黑龙自己」三张洗回卡组
-		//        （融合怪洗回**额外**），等于再弹走对方一只。
-		//   ⇒ 一张落胤与圣女换「破坏 1 + 弹回卡组 1」，对方两只怪同时清掉。
-		//   为什么要求墓地已有白界龙：黑龙 ② 必须凑齐「白界龙 + 黑龙 + 场上 1 张」三张才能发，
-		//   白界龙不在墓地时这条链会断在第一段。
-		ClientCard comboPrey = FallenComboPrey();
-		if (comboPrey != null)
-		{
-			return FallenBegin(1, comboPrey,
-				"黑龙 combo（T" + Duel.Turn + "，墓地有白界龙，对方 " + Enemy.GetMonsters().Count
-				+ " 只怪）→ 堆黑龙炸「" + comboPrey.Name + "」，之后黑龙 ② 把另一只洗回卡组",
-				CardId.Ecclesia);
-		}
-
 		return FallenTryRevive();
-	}
-
-	// ★ v6.05：T3 起「黑龙 combo」的前置条件与炸谁。
-	//   条件：T3 及以后 / 墓地已有白界龙 / 额外还有黑龙 / 对方场上 ≥2 只怪兽。
-	//   炸谁：对方表侧、炸得掉的里面攻击力最高的那只（另一只留给黑龙 ② 洗回卡组）。
-	private ClientCard FallenComboPrey()
-	{
-		if (Duel.Turn < 3) return null;
-		if (!Bot.Graveyard.Any(c => c != null && c.IsCode(CardId.Albion))) return null;
-		if (!Bot.ExtraDeck.Any(c => c.IsCode(CardId.Ecclesia))) return null;
-		if (Enemy.GetMonsters().Count < 2) return null;
-		return Enemy.GetMonsters()
-			.Where(c => c != null && c.IsFaceup() && !IsDestroyImmune(c))
-			.OrderByDescending(c => c.Attack)
-			.FirstOrDefault();
-	}
-
-	// ★ v6.04：炸掉对方场上的哪只表侧怪之后，我方这回合就能斩杀？
-	//   估算方式（保守）：把对方**剩余**表侧怪的攻击力合计当作「要先吃掉的挡刀」，
-	//   我方攻表打点合计减掉它还有对方 LP 那么多，就是够斩杀。
-	//     · 只算攻击表示的自己怪 —— 守备的这回合打不出去；
-	//     · 排除「不会被效果破坏」的（炸不掉，白算）；
-	//     · 按对方攻击力从高到低试：优先炸最挡路的那只。
-	//   有里侧盖怪时按每只 2000 估挡刀（看不到守备力，取个保守值）。
-	private ClientCard FallenLethalPrey()
-	{
-		if (Enemy.LifePoints <= 0) return null;
-		if (Duel.Turn == 1) return null;          // 先攻首回合进不了战斗阶段
-
-		int myAtk = 0;
-		foreach (ClientCard c in Bot.GetMonsters())
-			if (c != null && c.IsFaceup() && c.IsAttack()) myAtk += c.Attack;
-		if (myAtk <= 0) return null;
-
-		int block = 0;
-		int facedown = 0;
-		List<ClientCard> faceup = new List<ClientCard>();
-		foreach (ClientCard c in Enemy.GetMonsters())
-		{
-			if (c == null) continue;
-			if (!c.IsFaceup()) { facedown++; continue; }
-			block += c.Attack;
-			if (!IsDestroyImmune(c)) faceup.Add(c);
-		}
-
-		foreach (ClientCard c in faceup.OrderByDescending(x => x.Attack))
-		{
-			int remain = block - c.Attack + facedown * 2000;
-			if (myAtk - remain >= Enemy.LifePoints) return c;
-		}
-		return null;
 	}
 
 	// 躲无效要同时满足三件事：
@@ -7370,7 +7009,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 	}
 
 	// 统一的「要发动」入口：把选项和目标先记下来，紧接着的两次选卡询问（额外送墓 / 目标）照它走。
-	private bool FallenBegin(int mode, ClientCard target, string msg, int forceDump = 0)
+	private bool FallenBegin(int mode, ClientCard target, string msg)
 	{
 		if (mode == 1)
 		{
@@ -7381,13 +7020,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 				Log("落胤与圣女 → 额外卡组已经没有可送墓的「阿不思的落胤」怪兽，●1 发不出来 → 留着");
 				return false;
 			}
-			// ★ v6.05：`forceDump` 指定这次必须堆哪张（黑龙 combo 要靠它把黑龙送下去）
-			if (forceDump != 0 && !Bot.ExtraDeck.Any(c => c.IsCode(forceDump)))
-			{
-				Log("落胤与圣女 → 额外卡组里没有指定要堆的那张 → 这一手发不出来");
-				return false;
-			}
-			_fallenExtraDump = forceDump != 0 ? forceDump : FallenDumpChoice();
+			_fallenExtraDump = FallenDumpChoice();
 		}
 
 		_fallenMode = mode;
@@ -7397,28 +7030,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		AI.SelectOption(mode == 1 ? 0 : 1);
 		Log("落胤与圣女 → " + msg);
 		return true;
-	}
-
-	// ★ v6.03：「这张卡要没了」时炸谁 —— 对方场上**表侧**卡里最值得拆的一张。
-	//   评分复用重铠那套 `ArmorPreyValue`（场地 100 ＞ 战破抗性怪 95 ＞ 永续 70 ＞ 装备 65
-	//   ＞ 其它表侧魔陷 60 ＞ 怪兽按攻击力）。
-	//   排除「不会被效果破坏」的：砸上去卡不会走，这一手白扔。
-	//   落胤与圣女 ●1 的对象其实可以选双方场上，但用户口径是「炸对方场上的」，这里只从对方挑。
-	private ClientCard FallenEmergencyPrey()
-	{
-		return Enemy.GetMonsters().Concat(Enemy.GetSpells())
-			.Where(c => c != null && c.IsFaceup() && !IsDestroyImmune(c))
-			.OrderByDescending(ArmorPreyValue)
-			.FirstOrDefault();
-	}
-
-	// 日志用：这次堆的是哪张（`FallenDumpChoice` 的实际结果）
-	private string FallenDumpName()
-	{
-		int id = FallenDumpChoice();
-		if (id == CardId.Albion) return "白界龙";
-		if (id == CardId.Ecclesia) return "黑龙之艾克莉西娅";
-		return "（没有可堆的）";
 	}
 
 	// 堆墓优先级（用户口径）：「优先堆墓白界龙；第二次则堆墓黑龙之艾克莉西娅」。
@@ -7575,7 +7186,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		return true;
 	}
 
-	// ★ v6.45：阿莱斯哈特 ③ 把对方墓地的卡吸成素材。
 	private bool AriseHeartActivate()
 	{
 		if (EffectNegated()) return false;
@@ -7729,7 +7339,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		Log(fieldHasMonsters
 			? ("通召 雅·卡萝尔（场上有 " + Bot.GetMonsters().Count + " 只怪也照召；引擎若要解放就撤销这次召唤）")
 			: "通召 雅·卡萝尔（不解放，攻击力变 700，不花祭品）");
-		_carolNsTurn = Duel.Turn;   // ★ v6.20：本回合的通召权已经用在这里
 		return true;
 	}
 
@@ -7797,58 +7406,34 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//     即维持上面这条判据。唯一补的是**注册顺序**：G 现在排在灰流丽 / 幽鬼兔 / 遮蒙者之后 ——
 	//     同一张检索既有灰流丽又有 G 时，先交灰流丽（无效掉检索，G 留着应付后面的展开）；
 	//     灰流丽不在 / 已用掉，才让 G 跟这一链。
-	// ===== v6.23 欢聚友伴（side 局换入的两张）=====
-	// 两张卡脚本的发动条件完全一样：`s.drcon` = `Duel.GetFieldGroupCount(tp,LOCATION_ONFIELD,0)==0`
-	// —— **自己场上没有任何卡**（怪兽 + 魔陷都空）才开得出来，而且都是手牌 QUICK_O。
-	// 差别在管什么：
-	//   · 水母 84192580：对方从**手牌**召唤 / 特招怪兽 → 自己抽 1。
-	//     卡脚本 `s.procfilter` = `c:IsSummonPlayer(sp) and c:IsSummonLocation(LOCATION_HAND)`
-	//     —— **只有手牌这一种来源**（不含墓地/除外/卡组）；
-	//   · 雀 42141493：对方从**卡组·额外**把怪兽特招 → 自己抽 1。
-	// ⇒ 共同前提：这回合自己一旦铺开（哪怕盖一张魔陷）就再也发不了了，所以要在铺场之前甩出去。
-
-
-
-	// ===== v6.24 side 卡 =====
-	// ① 宇宙性飓风 2729965：「场上最多 2 张卡回到手卡。那之后，双方各自选回到自身手卡数量的
-	//    自身手卡回到卡组下面。」—— 后攻 side，抽到就用，主阶 1 第一个动作开。
-	//    对象按用户口径：对方场上高价值怪兽（高攻 / 干扰系）＞ 效果适用中的干扰性永续魔陷 / 场地 /
-	//    灵摆区卡 ＞ 盖放的魔陷，**能弹两张就弹两张**。
-	// ★ v6.25 用户口径修正排序：**干扰性怪兽 ＞ 高攻怪兽 ＞ 后场盖放魔陷 ＞ 永续 ＞ 场地 ＞ 灵摆 ＞ 其它**。
-	//   （v6.24 我按「场地最高」排是错的 —— 场地的干扰力通常不如一只带康的怪兽，
-	//   也不如一张盖着的未知魔陷。）
-
-
-	// ② 鹰身女妖的羽毛扫 18144506：「对方场上的魔法·陷阱卡全部破坏。」后攻 side，抽到就用。
-
-	// ③ 神之密告 78114463：`魔法·陷阱卡发动时` 二选一 ——
-	//    ●支付 1500 → 那个发动无效并破坏，本回合双方不能再发那张卡及同名卡；
-	//    ●支付 3000 → 无效并除外 + 对方除外所有同名卡。
-	//    用户口径：「统一用支付 1500 血无效发动那一栏」→ 永远选第 1 项（`SelectOption(0)`）。
-	//    盖放回合就能发：卡文要求「把自己场上 1 张其他的里侧表示的陷阱卡给对方观看」——
-	//    所以自己回合想用它，得先把辉煌盖下去（见 `ShouldSetSolemnDisclosure`）。
-
-
-
-	// ④ 神之警告 84749824：`支付 2000` 二选一 ——
-	//    ●0 含把怪兽特招效果的怪兽效果·魔陷**发动**时 → 无效并破坏；
-	//    ●1 把怪兽召唤·反转召唤·特招**之际** → 那个无效并破坏。
-	//    用户口径：「对方从手牌召唤/特招、从额外特招、或准备进行怪兽特招的效果发动时连锁无效，
-	//    尽量无效对方的第一个召唤动作。」
-	//    ⇒ 「召唤之际」是最省的一档（连落地都不给），优先用选项 1；效果发动时才用选项 0。
-
-
-	// ★ v6.38 用户口径（2026-10-27）：「增殖的 G 严格按照对方要发动将怪兽特殊召唤的效果时连锁，
-	//   或者对方场上有两只怪兽时主动发动，前者优先级高于后者。」
-	//   ⇒ 拆成两条，互斥且有先后：
-	//     ① 连锁（优先）：对方这一环的效果**会特招怪兽**才跟。以前是「对方随便发个效果就交」，
-	//        对手一张普通检索/贴纸就把 G 骗掉了。
-	//     ② 自由时点：对方场上**已有 ≥2 只怪兽** → 主动发动（已经铺开了，G 至少能抽到 1 张）。
 	private bool UseMaxxC()
 	{
-		if (Duel.Player != 1) return false;
+		// ★ v6.26 用户口径（2026-10-30 00:44）：
+		//   「自己回合，只有在对方发动将怪兽特殊召唤的效果时才连锁发动增殖的G。」
+		//   我方回合丢 G 只有一种场合有意义：对方要在**我方回合**把怪兽特招出来 ——
+		//   G 从那一刻挂着，之后每一次特招都换 1 张牌。对方只是检索 / 抽卡 / 破坏时一律不跟。
+		//   判据用整卡粒度的 `HasSpecialSummonEffect`（读 lua 找 `Duel.SpecialSummon(`）：
+		//   分不出「这一环是哪一个效果」，同一张卡既有检索又有特招时会误判，属于已知粗筛。
+		if (Duel.Player == 0)
+		{
+			if (!InChain()) return false;
+			ClientCard myTurnLast = Util.GetLastChainCard();
+			if (myTurnLast == null || myTurnLast.Controller != 1) return false;
+			if (!RaiseMoonScriptWipe.HasSpecialSummonEffect(myTurnLast.Id))
+			{
+				Log("手坑 增殖的G（自己回合）→ 对方这一手「" + (myTurnLast.Name ?? "?") + "」不会特招 → 不跟");
+				return false;
+			}
+			Log("手坑 增殖的G（自己回合 · 连锁对方「" + (myTurnLast.Name ?? "?") + "」会特招 → 发动）");
+			return true;
+		}
 
-		// ① 连锁对方「会特招怪兽」的效果 —— 优先级最高
+		// ★ v6.27 用户口径（2026-10-30 00:55）—— 对方回合的两条：
+		//   ① 对方发动「会把怪兽特殊召唤」的魔法 / 陷阱 / 怪兽效果时 → **连锁**；
+		//   ② 对方场上已经有 2 只以上怪兽 → **主动发动**（不用等它的下一个动作）。
+		//   其余（自由时点且场上不足 2 只 / 连锁上最后一环是我方 / 对方这一手不会特招且场上不足 2 只）→ 留着。
+		//   ① 用的判据是 `HasSpecialSummonEffect`（整卡粒度，读 lua 找 `Duel.SpecialSummon(`）——
+		//   这正好修掉 replay「优化4/_LastReplay」那种「贝陀螺发检索、G 白跟」的误判。
 		if (InChain())
 		{
 			ClientCard last = Util.GetLastChainCard();
@@ -7857,17 +7442,31 @@ public class RaiseMoonExecutor : DefaultExecutor
 				Log("手坑 增殖的G → 连锁上最后一环不是对方的卡，不跟");
 				return false;
 			}
-			if (!RaiseMoonScriptWipe.HasSpecialSummonEffect(last.Id))
+			if (LastChainIsEnemyCardActivation())
 			{
-				Log("手坑 增殖的G → 对方这一手「" + (last.Name ?? "?") + "」不会特招怪兽 → 不跟，留着");
+				// ★ v6.34（replay「2026-10-30 02-17-06」）：对方只是「发动这张卡」本身时不算「会特招的效果发动」。
+				//   剑斗兽场地（`script/c5063379.lua`）的 e1 是**纯 `EFFECT_TYPE_ACTIVATE`**，
+				//   特招写在 e3（攻击宣言时从卡组特招）；`HasSpecialSummonEffect` 是整卡粒度，
+				//   于是「拍场地」被当成特招环 → G 白跟（日志实证：`手坑 增殖的G → 连锁对方
+				//   「剑斗兽的斗技场-弗拉维圆形斗技场」（会特招 → …）`）。
+				Log("手坑 增殖的G → 对方只是「发动 " + (last.Name ?? "?") + "」这张卡本身"
+					+ "（特招写在它场上的效果里，这一环不特招）→ 不跟，留着");
 				return false;
 			}
-			Log("手坑 增殖的G → 连锁对方「" + (last.Name ?? "?") + "」（会特招怪兽）");
-			Say("maxxC", "诶～我正好抽到增殖的g了呢～♫");
-			return true;
+			if (RaiseMoonScriptWipe.HasSpecialSummonEffect(last.Id))
+			{
+				Log("手坑 增殖的G → 连锁对方「" + (last.Name ?? "?") + "」（会特招 → 这回合它每次特招我抽 1）");
+				return true;
+			}
+			// ★ v6.34：②「对方场上有 2 只以上怪兽 → 主动发动」是**自由时点**的口径，
+			//   不该在对方的任何一条连锁上都跟。原来这里有一段 `场上 ≥2 只 → 发`，
+			//   会让 G 在对方的检索 / 场地发动这类与本回合展开无关的环上被白扔；
+			//   真到需要挂的场合，对方特招那一环还能按 ① 连锁，或者结算后在自由时点按 ② 主动发。
+			Log("手坑 增殖的G → 对方这一手「" + (last.Name ?? "?") + "」不会特招 → 不跟，留到自由时点再看");
+			return false;
 		}
 
-		// ② 自由时点：对方已经铺开 ≥2 只
+		// 自由时点（对方召唤 / 盖卡之后那种没有连锁的时点）—— ②
 		int n = Enemy.GetMonsters().Count(c => c != null);
 		if (n >= 2)
 		{
@@ -7902,7 +7501,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// 其余场合：无效「从卡组加入手卡 / 从卡组特招 / 从卡组送墓」。
 		// AI 拿不到对方效果的分类，所以只要对面在发动效果就交 —— 这三类占了绝大多数。
 		bool ok = UseNegate("灰流丽", true);
-		if (ok) { _ashUsedTurn = Duel.Turn; Say("ash", "诶～我正好抽到灰流丽了呢～♫"); }
+		if (ok) _ashUsedTurn = Duel.Turn;
 		return ok;
 	}
 
@@ -8021,12 +7620,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return false;
 		}
 
-		if (UseNegate("幽鬼兔"))
-		{
-			Say("rabbit", "诶～我正好抽到幽鬼兔了呢～♫");
-			return true;
-		}
-		return false;
+		return UseNegate("幽鬼兔");
 	}
 
 	// ===== 屋敷童（73642296）v5.91 =====
@@ -8082,7 +7676,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return false;
 		}
 		Log("手坑 屋敷童 → 无效「" + last.Name + "」的墓地相关效果");
-		Say("belle", "诶～我正好抽到屋敷童了呢～♫");
 		return true;
 	}
 
@@ -8208,6 +7801,19 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return false;
 		}
 
+		// ★ v6.36 用户口径（replay「2026-10-30 02-54-42」）：
+		//   「当对方场上有能无效怪兽效果发动（包括能无效卡的效果的发动的）的卡时，
+		//     陨石不要发动解放效果，会被白白破坏掉。」
+		//   陨石是**手牌发动的怪兽效果**，遇到神之通告 / 朱光·绿光之宣告者这类
+		//   「无效发动」的卡就是直接作废、连解放都不结算 —— 我方白扔一张手牌，对方展开照旧。
+		//   判据见 `EnemyNegateRisk()`（表侧读脚本 + 后场盖卡按「可能有」处理）。
+		string negateRisk = EnemyNegateRisk();
+		if (negateRisk != null)
+		{
+			Log("陨石 → " + negateRisk + " → 这一发会被无效破坏，留着它");
+			return false;
+		}
+
 		_nibiruUsed = true;
 		// ★ v5.59：解放怪的攻击力合计（= 对方那只衍生物的攻击力）> 3000 时，
 		//   陨石本体（3000/600）落守备，别攻表站着被它白吃 —— 选位见 OnSelectPosition。
@@ -8215,11 +7821,39 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// ★ v5.65：对方那只衍生物的攻守（= 被解放怪兽原本攻/守合计），选位按它俩比较
 		_nibiruTokenAtk = freedAtk;
 		_nibiruTokenDef = freedDef;
-		Say("nibiru", "诶～我正好抽到陨石了呢～♫");
 		Log("陨石 发动（对方本回合已召唤/特招 " + _enemySummonCount
 			+ " 只；对方表侧资源 " + enemyGain + " > 我方 " + ownLoss
 			+ "，净收益 +" + net + "）→ 解放双方表侧怪兽");
 		return true;
+	}
+
+	// ★ v6.36 用户口径（replay「2026-10-30 02-54-42」）：陨石的「不要往有无效系的场面丢」闸门。
+	//   陨石是手牌发动的怪兽效果 → 被「无效效果发动」的卡（神之通告 40605147 / 朱光 17266660 /
+	//   绿光 21074344 …）直接无效并破坏，一张手牌白扔，对方场面毫发无损。
+	//   两层判据：
+	//     ① 对方**场上表侧**的怪兽 / 魔陷 → 读 `script/c<id>.lua` 找 `Duel.NegateActivation(` /
+	//        `EFFECT_NEGATE_ACTIVATE`（`RaiseMoonScriptWipe.NegatesActivation`）；
+	//     ② 对方**后场盖卡** → 内容对 AI 不可见，但这类反击陷阱只能盖着等触发，
+	//        所以「有盖卡」就按「可能有」处理（用户口径是宁可留着，不要白扔）。
+	//   返回 null = 没风险可以发；否则返回一句日志用的人话。
+	private string EnemyNegateRisk()
+	{
+		foreach (ClientCard c in Enemy.GetMonsters())
+		{
+			if (c == null || !c.IsFaceup()) continue;
+			if (RaiseMoonScriptWipe.NegatesActivation(c.Id))
+				return "对方场上有「" + (c.Name ?? "?") + "」（能无效效果的发动）";
+		}
+		foreach (ClientCard c in Enemy.GetSpells())
+		{
+			if (c == null || !c.IsFaceup()) continue;
+			if (RaiseMoonScriptWipe.NegatesActivation(c.Id))
+				return "对方场上有「" + (c.Name ?? "?") + "」（能无效效果的发动）";
+		}
+		int setCount = Enemy.GetSpells().Count(c => c != null && !c.IsFaceup());
+		if (setCount > 0)
+			return "对方后场有 " + setCount + " 张盖卡（可能藏着神之通告这类「无效发动」的反击陷阱）";
+		return null;
 	}
 
 	// 陨石结算时会被解放的**攻击力合计**（决定对方拿到的那只衍生物多大）。
@@ -8331,7 +7965,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		}
 
 		if (!UseNegate("效果遮蒙者")) return false;
-		Say("veiler", "诶～我正好抽到丝袜了呢～♫");
 		_veilerTarget = last;                 // 目标锁死：就是刚发动效果的那只
 		return true;
 	}
@@ -8347,6 +7980,8 @@ public class RaiseMoonExecutor : DefaultExecutor
 		if (last == null) return false;
 		if (!Bot.GetMonstersInExtraZone().Any(c => c != null && c.IsCode(CardId.Jackpot) && !c.IsDisabled()))
 			return false;
+		// ★ v6.32：对方只是「发动这张卡」本身（场地 / 永续 / 装备）→ 大姐这一手换不了东西，别让位。
+		if (LastChainIsEnemyCardActivation()) return false;
 		return RaiseMoonScriptWipe.TakesFromDeckToHand(last.Id);
 	}
 
@@ -8367,63 +8002,12 @@ public class RaiseMoonExecutor : DefaultExecutor
 		if (Duel.Phase != DuelPhase.Main1 && Duel.Phase != DuelPhase.Main2) return false;
 
 		ClientCard target = PickCostLeaveFieldTarget();
-		if (target != null)
-		{
-			_veilerTarget = target;
-			Log("手坑 效果遮蒙者 → 提前无效「" + target.Name
-				+ "」（cost 离场型效果，等它发动就指不到了）");
-			return true;
-		}
+		if (target == null) return false;
 
-		// ★ v6.29 用户口径（2026-10-27，replay 剑斗兽那一局）：
-		//   「对方场上有一张**战斗阶段才能发动效果**的怪兽（剑斗兽 德拉加塞斯：攻击宣言时保护/减半伤害），
-		//    而效果遮蒙者在战斗阶段是发不动的 —— 必须赶在主阶 1 结束前主动丢，把那只怪无效掉。」
-		//   卡文：遮蒙者只能在「对方的主要阶段」发动 —— 进了 BP 就彻底没窗口了。
-		ClientCard battle = PickBattleOnlyEffectTarget();
-		if (battle == null) return false;
-
-		_veilerTarget = battle;
-		Log("手坑 效果遮蒙者 → 提前无效「" + battle.Name
-			+ "」（效果只在战斗阶段/结束阶段触发，等它到那个时点遮蒙者就发不了了）");
+		_veilerTarget = target;
+		Log("手坑 效果遮蒙者 → 提前无效「" + target.Name
+			+ "」（cost 离场型效果，等它发动就指不到了）");
 		return true;
-	}
-
-	// ★ v6.29 / v6.30：对方场上「效果只在**晚于主阶**的时点触发」的表侧怪 ——
-	//   这类必须赶在主阶把遮蒙者丢出去（卡文：遮蒙者只能「对方的主要阶段」发动）。
-	//     · 战斗阶段 / 攻击宣言时 / 进行战斗时 → 窗口在主阶 1 或主阶 2，进了 BP 就晚了；
-	//     · **结束阶段**（v6.30 用户口径）→ 窗口在主阶 2 结束前。
-	//   判据读卡文（超先行卡可能没有 lua，但卡文一定有）：
-	//     含上面任一阶段字眼**并且**带「无效 / 破坏 / 伤害」这类干扰字，避免把
-	//     「攻击宣言时抽 1 张」这种无害效果也浪费掉遮蒙者。
-	private ClientCard PickBattleOnlyEffectTarget()
-	{
-		// ★ v6.31 用户口径（2026-10-27）：「不是对方出了这种怪就要马上交遮蒙者，而是对方出了这种怪兽
-		//   **攻击表示**、然后想要结束主要阶段的自由时点才发动。」
-		//   ⇒ 加 `IsAttack()`：守备表示的那种不打架，这回合不用管它，遮蒙者留给别处。
-		return Enemy.GetMonsters()
-			.Where(c => c != null && c.IsFaceup() && c.IsAttack() && !c.IsDisabled()
-				&& c.HasType(CardType.Monster) && BattleOnlyEffect(c))
-			.OrderByDescending(c => c.Attack)
-			.FirstOrDefault();
-	}
-
-	private static bool BattleOnlyEffect(ClientCard c)
-	{
-		string desc = c != null && c.Data != null ? c.Data.Description : null;
-		if (string.IsNullOrEmpty(desc)) return false;
-
-		// ★ v6.35 修 v6.30 的误判：原来只看「卡文里出现『结束阶段』」，结果
-		//   「炎王兽 甘尼许」② 那句「那只怪兽特殊召唤。那只怪兽的效果无效化，**结束阶段破坏**」
-		//   整张卡就被判成「效果只在结束阶段发动」，遮蒙者连着交了两张（日志 21:55:26 / 21:55:27）。
-		//   ⇒ 阶段词必须和「才能发动 / 可以发动」**连在一起**才算：
-		//   「结束阶段破坏」「战斗阶段结束时」这种描述别的效果的句子不再命中。
-		if (desc.Contains("攻击宣言时") || desc.Contains("进行战斗时")) return true;   // 明确的触发时点
-		bool phaseOnly =
-			desc.Contains("战斗阶段才能发动") || desc.Contains("战斗阶段可以发动")
-			|| desc.Contains("结束阶段才能发动") || desc.Contains("结束阶段可以发动");
-		if (!phaseOnly) return false;
-
-		return desc.Contains("无效") || desc.Contains("破坏") || desc.Contains("伤害");
 	}
 
 	// 在对方场上挑一只「cost 离场才能发动」的表侧怪。
@@ -8459,19 +8043,25 @@ public class RaiseMoonExecutor : DefaultExecutor
 		return cands.OrderByDescending(c => c.Attack).First();
 	}
 
-	// ★ v5.61：对方是不是「疾行机人卡组」——场上 + 墓地 + 除外里见过 ≥2 张**不同**的疾行机人卡。
-	//   只见过一张竹蜻蜓不算：它是泛用展开件，什么卡组都可能塞一张。
+	// ★ T08（2026-10-29 线上局）：判据从「数张数」改成「看有没有调整」。
+	//   竹蜻蜓电子人② 只能特招「疾行机人」调整，对方卡组里没有调整 ⇒ ② 空转，不值得交遮蒙者。
+	//   贝陀螺 / 竹蜻蜓 是任何带风属性的卡组都能白嫖的泛用身体（贝陀螺①场空自跳、竹蜻蜓①场上有风属性自跳），
+	//   凑到两张也证明不了同调路线 —— 线上对剑斗兽那局就是被这两张骗过去的。
 	private bool IsSpeedroidDeck()
 	{
 		const int speedroid = 0x2016;   // 疾行机人字段（cards.cdb setcode 实测）
 		HashSet<int> seen = new HashSet<int>();
-		foreach (ClientCard c in Enemy.GetMonsters())
-			if (c != null && c.HasSetcode(speedroid)) seen.Add(c.Id);
-		foreach (ClientCard c in Enemy.Graveyard)
-			if (c != null && c.HasSetcode(speedroid)) seen.Add(c.Id);
-		foreach (ClientCard c in Enemy.Banished)
-			if (c != null && c.HasSetcode(speedroid)) seen.Add(c.Id);
-		return seen.Count >= 2;
+		List<string> names = new List<string>();
+		bool hasTuner = false;
+		foreach (ClientCard c in Enemy.GetMonsters().Concat(Enemy.Graveyard).Concat(Enemy.Banished))
+		{
+			if (c == null || !c.HasSetcode(speedroid)) continue;
+			if (seen.Add(c.Id)) names.Add(c.Name ?? ("#" + c.Id));
+			if (c.HasType(CardType.Tuner)) hasTuner = true;
+		}
+		Log("疾行机人判定 → 见过 " + seen.Count + " 种（" + string.Join("/", names) + "）；含调整=" + hasTuner
+			+ " → " + (hasTuner ? "按疾行机人卡组处理" : "只是泛用件"));
+		return hasTuner;
 	}
 
 	// 「把（场上的）这张卡 / 自己 解放·送去墓地·除外·回到卡组/手牌 …… 发动」
@@ -8604,13 +8194,8 @@ public class RaiseMoonExecutor : DefaultExecutor
 		foreach (ClientCard c in Duel.CurrentChain)
 		{
 			if (c == null || c.Controller != 0) continue;
-			// ★ v6.44 用户口径（2026-10-27）：「升月后攻、手牌有遮蒙者和幽鬼兔时，对方场上怪兽发效果 →
-			//   先 C2 幽鬼兔，再 C3 遮蒙者无效那只怪。」
-			//   ⇒ **幽鬼兔不算「已经无效过」**：它只是把那张卡**破坏**，已经发动的效果照常结算；
-			//   和灰流丽 / 遮蒙者 / 屋敷童那种「无效」完全是两回事。
-			//   以前把它算进来，C2 交了兔子之后 C3 遮蒙者就被这里挡掉，等于白白放跑一个无效。
-			//   （两只兔子是卡名 1 回合 1 次，引擎不会重复问，不用担心连发。）
-			if (c.IsCode(CardId.AshBlossom) || c.IsCode(CardId.Veiler) || c.IsCode(CardId.GhostBelle))
+			if (c.IsCode(CardId.AshBlossom) || c.IsCode(CardId.GhostRabbit) || c.IsCode(CardId.Veiler)
+				|| c.IsCode(CardId.GhostBelle))   // v5.91：屋敷童同样是「无效那个发动」
 				return true;
 		}
 		return false;
@@ -8620,22 +8205,54 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//   只认两张真正让效果作废的：
 	//     · 灰流丽（AshBlossom）：无效并除外 —— 她只能对「从卡组加手卡 / 从卡组特招 / 从卡组送墓」发，
 	//       与大姐 e5 关心的 `CATEGORY_SEARCH` 完全重合，交了就必然让这条检索作废；
-	//     · 遮蒙者（Veiler）：把那只怪兽的效果无效 —— `UseVeiler` 只会指向链上最后一环那只表侧怪兽，
-	//       所以链上出现它就等于那条怪兽效果已作废。
+	//     · 遮蒙者（Veiler）：把那只怪兽的效果无效 —— `UseVeiler` 只会指向「它发动时链尾那只表侧怪兽」，
+	//       所以它作废的是**那一只怪**（不是整条链）。★ v6.35 起按「打掉的链环」逐个比对。
 	//   **幽鬼兔不算**：它只是把那只怪**破坏**，已经发动的效果照常结算（v5.24 曾把它算进来，是错的）。
 	//
 	//   这个判据只服务于「替换有没有意义」，与 `NegateAlreadyInChain()`（手坑去重）是两回事，
 	//   也和 v5.25 的口径（有手坑不禁替换）不冲突：
 	//     「有手坑」≠「原效果被无效」，只有后者才让替换无从生效。
+	// 链上一串卡名（日志用）：`A(我) → B(敌) → C(我)`，方便直接看出「谁无效了谁」。
+	private string ChainNames()
+	{
+		if (Duel.CurrentChain == null || Duel.CurrentChain.Count == 0) return "空";
+		return string.Join(" → ", Duel.CurrentChain.Select(c =>
+			(c == null ? "?" : (c.Name ?? "?")) + (c.Controller == 0 ? "(我)" : "(敌)")));
+	}
+
 	private bool ChainSearchNegatedByUs()
 	{
-		if (Duel.CurrentChain == null) return false;
-		foreach (ClientCard c in Duel.CurrentChain)
+		IList<ClientCard> chain = Duel.CurrentChain;
+		if (chain == null || chain.Count == 0) return false;
+
+		// ★ v6.35（replay「2026-10-30 02-34-24」，02:35:23 那次）：
+		//   原判据只看到「链上有灰流丽 / 遮蒙者」就认定检索已被无效 —— 但两者都只无效
+		//   **它们接的那一环**（C(n-1)），不是整条链：
+		//     · 遮蒙者是**取对象**的（`UseVeiler` 只指「它发动时链尾的那只表侧怪兽」），
+		//       打在别的怪身上时，另一只怪的检索照样生效；
+		//     · 灰流丽接的是「从卡组加手卡 / 特招 / 送墓」那一环，链上若还有另一条检索，
+		//       那条并不受影响。
+		//   旧写法在「遮蒙者指 A、检索来自 B」的场合会把大姐的替换白压掉 → 对方白拿一张检索。
+		//   现在改成：先把每个无效系「打掉的链环」列出来，再看**所有**对方的检索源是不是都在里面。
+		List<ClientCard> negated = new List<ClientCard>();
+		for (int i = 0; i < chain.Count; i++)
 		{
+			ClientCard c = chain[i];
 			if (c == null || c.Controller != 0) continue;
-			if (c.IsCode(CardId.AshBlossom) || c.IsCode(CardId.Veiler)) return true;
+			if (!c.IsCode(CardId.AshBlossom) && !c.IsCode(CardId.Veiler)) continue;
+			if (i > 0) negated.Add(chain[i - 1]);      // 无效的是它接的那一环
 		}
-		return false;
+		if (negated.Count == 0) return false;
+
+		bool anySearch = false;
+		foreach (ClientCard c in chain)
+		{
+			if (c == null || c.Controller != 1) continue;
+			if (!RaiseMoonScriptWipe.TakesFromDeckToHand(c.Id)) continue;
+			anySearch = true;
+			if (!negated.Contains(c)) return false;     // 还有一条检索没被无效 → 替换仍然有意义
+		}
+		return anySearch;
 	}
 
 	// 素材优先级：先给对本回合已经没有后续价值的，把「翼」留到最后（它要留在场上开 ③）
@@ -8692,18 +8309,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//   先攻：西艾萝 ＞ 菈碧 ＞ 卡萝尔 ＞ 朔 ＞ 库露雪/希耶娜
 	//   后攻：西艾萝 ＞ 库露雪/希耶娜 ＞ 菈碧 ＞ 卡萝尔 ＞ 朔
 	//   「库露雪/希耶娜」同一档 —— 按用户写的顺序，库露雪在前（弹魔陷）。
-	// ★ v6.22：把 `first` 在表里挪到 `second` 前面（只交换这两格，其余顺序不动）。
-	private static int[] SwapIfAfter(int[] order, int first, int second)
-	{
-		int i = Array.IndexOf(order, first);
-		int j = Array.IndexOf(order, second);
-		if (i < 0 || j < 0 || i < j) return order;
-		int[] copy = (int[])order.Clone();
-		copy[i] = second;
-		copy[j] = first;
-		return copy;
-	}
-
 	private static readonly int[] StackPriorityFirst =
 		{ CardId.Siero, CardId.Rabi, CardId.Carol, CardId.Squiz, CardId.Kurusu, CardId.Hiena };
 	private static readonly int[] StackPrioritySecond =
@@ -8779,19 +8384,6 @@ public class RaiseMoonExecutor : DefaultExecutor
 		if (JackpotReachable())
 		{
 			int[] order = GoingFirst() ? StackPriorityFirst : StackPrioritySecond;
-
-			// ★ v6.22 用户口径（2026-10-27，replay 优化4）：「对方场上只有怪兽，群星置顶就不要置顶库露雪了，
-			//   应该是置顶希耶娜；同理，如果对方场上只有魔法陷阱卡，那就置顶库露雪而不是希耶娜。」
-			//   两套优先表里库露雪都排在希耶娜前面，可它们的作用完全不同 ——
-			//   希耶娜 ② 弹的是**怪兽**、库露雪 ② 弹的是**魔陷**，置错了那张自跳下来无事可做。
-			//   所以按对方场面把这两只在表里的先后换一下（其余顺序不动）。
-			bool enemyHasMon = Enemy.GetMonsters().Any(c => c != null);
-			bool enemyHasSt = Enemy.GetSpells().Any(c => c != null);
-			if (enemyHasMon && !enemyHasSt)
-				order = SwapIfAfter(order, CardId.Hiena, CardId.Kurusu);
-			else if (!enemyHasMon && enemyHasSt)
-				order = SwapIfAfter(order, CardId.Kurusu, CardId.Hiena);
-
 			ClientCard jackpotPick = PickFirstStack(deck, used, order);
 			if (jackpotPick != null)
 			{
@@ -8830,18 +8422,13 @@ public class RaiseMoonExecutor : DefaultExecutor
 			}
 		}
 
-		// ② 对方前场有表侧怪 → 希耶娜（被抽到自跳 → ② 弹回卡组）
-		//   ★ v6.22：门槛从「2000+ 的大怪」放宽到「任意表侧怪」——
-		//   用户口径是「对方场上只有怪兽就置顶希耶娜」，小怪也照样弹掉（弹回卡组洗掉就是净赚）。
-		//   但**对方有魔陷时让给库露雪**（下面 ③），两边都置顶等于有一张白跳。
-		bool enemyStHere = Enemy.GetSpells().Any(c => c != null);
-		if (!enemyStHere
-			&& Enemy.GetMonsters().Any(c => c != null && c.IsFaceup() && c.HasType(CardType.Monster)))
+		// ② 对方前场有站得住的大怪 → 希耶娜（被抽到自跳 → ② 弹回卡组）
+		if (Enemy.GetMonsters().Any(c => c != null && c.IsFaceup() && c.Attack >= 2000))
 		{
 			ClientCard hiena = PickFirstStack(deck, used, new[] { CardId.Hiena });
 			if (hiena != null)
 			{
-				Log("群星 置顶理由：对方只有怪兽（" + Enemy.GetMonsters().Count + " 只）→ 置顶希耶娜（弹回卡组）");
+				Log("群星 置顶理由：对方前场有 2000+ 的怪 → 置顶希耶娜（弹回卡组）");
 				return hiena;
 			}
 		}
