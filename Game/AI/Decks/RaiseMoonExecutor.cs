@@ -906,6 +906,12 @@ public class RaiseMoonExecutor : DefaultExecutor
 	private int _ecclesiaUsedTurn = -1;
 	private bool _ecclesiaSkipLogged;      // 黑龙 ②「没有值得处理的目标」每回合只打一行
 	private bool _belleSkipLogged;         // 屋敷童「留着」的解释日志每回合只打一行
+
+	// ===== v6.45 台词系统（自 PR 版回补，只保留中文台词）=====
+	private readonly HashSet<string> _said = new HashSet<string>();
+	private int _drawSelfTurn = -1, _drawSelfCount;   // 自己回合抽卡次数
+	private int _drawOppTurn = -1, _drawOppCount;     // 对方回合抽卡次数
+	private DateTime _lastEnemyMove = DateTime.Now;   // 对方最后一次动作（⑭ 用）
 	private int _albionDumpedTurn = -1;    // 白界龙 是被「哪一回合」堆下墓的（它只在那一回合的结束阶段能盖落胤与圣女）
 
 	// ★ v5.29：上一次「进连锁的卡」是谁的（0 = 我方，1 = 对方，-1 = 本回合还没人发动）。
@@ -1896,6 +1902,41 @@ public class RaiseMoonExecutor : DefaultExecutor
 	//      大姐那侧同步让位（`_squizContinuous`）：朔装上了就别再替换，否则抽 1 永不触发。
 	//   2) 对方回合要不要用「抽 1」：只看**对方场上有没有怪兽 / 魔陷** ——
 	//        有 → 另开 C1 抽 1（抽到本家正好下去解场）；没有 → 留着。
+	// ===== v6.45：台词系统 =====
+	//   每句只喊一次（`_said` 去重），走 `AI.Game.Chat()` 直接发到聊天框，
+	//   同时写一行 `台词[key] …` 进日志，方便 grep。发送失败绝不影响对局。
+	private void Say(string key, string text)
+	{
+		if (_said.Contains(key)) return;
+		_said.Add(key);
+		try { AI.Game.Chat(text); } catch { }
+		Log("台词[" + key + "] " + text);
+	}
+
+	// 每发生一次「我方抽卡」就调一次（挂在 OnMove），按回合分开计数。
+	private void CountDraw()
+	{
+		if (Duel.Player == 1)
+		{
+			if (_drawOppTurn != Duel.Turn) { _drawOppTurn = Duel.Turn; _drawOppCount = 0; }
+			_drawOppCount++;
+			if (_drawOppCount >= 2) Say("drawOpp", "我还能抽卡，气不气");
+		}
+		else
+		{
+			if (_drawSelfTurn != Duel.Turn) { _drawSelfTurn = Duel.Turn; _drawSelfCount = 0; }
+			_drawSelfCount++;
+			if (_drawSelfCount >= 3) Say("drawSelf", "牌好多啊，不知道怎么打了");
+		}
+	}
+
+	// 弹卡类台词（刃 / 灯 / 千金 / 托勒密通用）：回合内 / 回合外两套。
+	private void SayBounce(string who)
+	{
+		if (Duel.Player == 0) Say("bounceSelf", "我给你清光光～给你清光光～");
+		else Say("bounceOpp", "哇哦，这是你高贵的动点吗，啪嗒～没～有～了～哦～");
+	}
+
 	private bool SquizActivate()
 	{
 		if (Card == null || Card.Location != CardLocation.Hand) return false;
@@ -3651,6 +3692,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 		AI.SelectMaterials(new List<ClientCard> { baseXyz });
 		Log("叠 光子咆哮 ← 黑智天至（战阶 5300）");
+		Say("photon", "叔叔，看到我这黑黑的大龙了吗，马上就要给你来上一发了哦～");
 		return true;
 	}
 
@@ -3769,6 +3811,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 
 		AI.SelectMaterials(new List<ClientCard> { baseXyz });
 		Log("叠 重铠光子龙 ← 光子咆哮（拔1 破坏对方「" + prey.Name + "」）");
+		Say("photon", "叔叔，看到我这黑黑的大龙了吗，马上就要给你来上一发了哦～");
 		return true;
 	}
 
@@ -4652,6 +4695,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 				//   但它接的是**我方大姐的结算**。置这个标记，让锁鸟这一手不接。
 				_jackpotReplacedSearch = true;
 				Log("大姐 替换检索（对方手牌 " + Enemy.Hand.Count + " 张 → 精准检索改成随机抽 1）");
+				Say("jackpotReplace", "你这效果不好看啊，我给你换一个");
 				return true;
 			}
 			// ★ v5.75 用户口径：「大姐在额外怪兽区不受效果影响呀，只会被战斗破坏的，
@@ -5144,6 +5188,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		_omegaTargets = targets;
 		AI.SelectNumber(targets.Count);
 		Log("托勒密 ② 拔" + targets.Count + " 弹" + targets.Count + " 只怪兽回卡组");
+		SayBounce("托勒密");
 		return true;
 	}
 
@@ -5225,6 +5270,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		_utopiaPending = true;
 		_utopiaTarget = target;
 		Log("No.76 ③ 吸对方墓地 → " + (target?.Name ?? "?") + "（" + reason + "）");
+		Say("steal", "这张卡不适合你，还是我用吧");
 		return true;
 	}
 
@@ -6205,6 +6251,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			if (pick != null)
 			{
 				Log("刃/灯 ② 弹卡选 -> " + pick.Name);
+				SayBounce("刃/灯");
 				return new List<ClientCard> { pick };
 			}
 		}
@@ -6427,6 +6474,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			if (pick != null)
 			{
 				Log("阿莱斯哈特 ③ 里侧除外 -> " + pick.Name);
+				Say("steal", "这张卡不适合你，还是我用吧");
 				return new List<ClientCard> { pick };
 			}
 		}
@@ -6485,6 +6533,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 				// ★ v5.73：这一刻才是「效果真的弹了卡」—— 记下回合号，菈碧 ③ 之后不再叠千金大奖。
 				_bountyBouncedTurn = Duel.Turn;
 				Log("千金大奖 ② 弹卡选 -> " + string.Join(" / ", picks.Select(c => c.Name)));
+				SayBounce("千金大奖");
 				return picks;
 			}
 		}
@@ -6598,6 +6647,26 @@ public class RaiseMoonExecutor : DefaultExecutor
 			// ★ v5.94：黑智天至「本回合爬过」同理
 			_irisUsedTurn = -1;
 		}
+
+		// ===== v6.45：回合开始的台词判定（⑤⑥⑦⑩）=====
+		// ⑤ 准备打赢：对方 LP 已经落到我方场面打点以下
+		// ⑥ 准备打输：我方 LP ≤ 2000
+		// ⑦ 差 5000 以上准备输：⑥ 的加强版，优先级更高
+		int myAtk = TotalAttack();
+		if (Bot.LifePoints + 5000 <= Enemy.LifePoints && Bot.LifePoints <= 2000)
+			Say("lose5000", "呜呜呜叔叔我错了不要抽我了呜呜呜");
+		else if (Bot.LifePoints <= 2000)
+			Say("lose", "牌技这么好，叔叔一定是单身吧？");
+		else if (myAtk > 0 && myAtk >= Enemy.LifePoints)
+			Say("win", "玩游戏王几年了？怎么跟玩了几天差不多啊，杂鱼");
+
+		// ⑩ 自己手牌 + 场上 ≥6，对方手牌 + 场上 ≤3
+		int myCards = Bot.Hand.Count(c => c != null) + Bot.GetMonsters().Count(c => c != null)
+			+ Bot.SpellZone.Count(c => c != null);
+		int hisCards = Enemy.Hand.Count(c => c != null) + Enemy.GetMonsters().Count(c => c != null)
+			+ Enemy.SpellZone.Count(c => c != null);
+		if (myCards >= 6 && hisCards <= 3)
+			Say("starve", "缺牌了？求我啊，没准我能让你抽一张呢");
 
 		// ★ v5.72：我方第一个回合定下「先攻 / 后攻」，整局不再变。
 		//   `Duel.Turn == 1` 且轮到我方 = 我方先攻；否则我方第一个回合是 T2 = 后攻。
@@ -6716,6 +6785,23 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// 对方重新起一条链 = 一个独立的新动作；大姐那次替换的「抽卡归属」到此作废。
 		if (player == 1) _jackpotReplacedSearch = false;
 
+		// ===== v6.45：对方丢特定手坑时的台词（⑪⑫）=====
+		if (player == 1 && card != null)
+		{
+			if (card.IsCode(CardId.MaxxC) || card.IsCode(CardId.LockBird) || card.IsCode(CardId.LockBirdAlt))
+				Say("enemyG", "工作压力，家庭阴影，单身而立，ε=(´o｀*)))唉，想到这些，我也不觉得你运气好了");
+			if (card.IsCode(CardId.Jellyfish))
+				Say("enemyMulcharmy", "哟，吃顿好的吧");
+		}
+
+		// ★ v6.46 用户口径（改 ⑭）：「对方 30 秒以上没操作，下次**动的时候**说这句。」
+		//   WindBot 是事件驱动的，对方静止时收不到任何回调 → 不可能实时喊；
+		//   等它下一次上链，用「距上次动作的间隔」判断，晚一句但一定说得出口。
+		if (player == 1 && (DateTime.Now - _lastEnemyMove).TotalSeconds >= 30)
+			Say("slow", "这么半天终于动了吗，你小头可比大头快多了，杂鱼");
+
+		_lastEnemyMove = DateTime.Now;
+
 		if (player == 1 && card != null && card.IsCode(CardId.Jellyfish))
 		{
 			_jellyfish = true;
@@ -6762,6 +6848,17 @@ public class RaiseMoonExecutor : DefaultExecutor
 	public override void OnMove(ClientCard card, int previousControler, int previousLocation, int currentControler, int currentLocation)
 	{
 		base.OnMove(card, previousControler, previousLocation, currentControler, currentLocation);
+
+		// ===== v6.45：抽卡计数（①②）=====
+		// 卡从**卡组 → 我方手牌**就算一次「我方抽卡」。用 `OnMove` 一处覆盖全部抽卡来源，
+		// 不用在每个抽卡执行器里埋点。
+		// ★ 已知偏差：从卡组**检索**加入手卡也会走这条路（本家没有检索卡，实际几乎都是真抽卡）。
+		if (currentControler == 0
+			&& previousLocation == (int)CardLocation.Deck
+			&& currentLocation == (int)CardLocation.Hand)
+		{
+			CountDraw();
+		}
 
 		// ★ v5.73：我方大姐（一掷乾坤）在战斗中被对方打掉 → 从怪兽区进墓。
 		//   记下回合号，菈碧 ③ 才能把它补回来
@@ -7456,6 +7553,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			if (RaiseMoonScriptWipe.HasSpecialSummonEffect(last.Id))
 			{
 				Log("手坑 增殖的G → 连锁对方「" + (last.Name ?? "?") + "」（会特招 → 这回合它每次特招我抽 1）");
+				Say("maxxC", "诶～我正好抽到增殖的g了呢～♫");
 				return true;
 			}
 			// ★ v6.34：②「对方场上有 2 只以上怪兽 → 主动发动」是**自由时点**的口径，
@@ -7501,7 +7599,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// 其余场合：无效「从卡组加入手卡 / 从卡组特招 / 从卡组送墓」。
 		// AI 拿不到对方效果的分类，所以只要对面在发动效果就交 —— 这三类占了绝大多数。
 		bool ok = UseNegate("灰流丽", true);
-		if (ok) _ashUsedTurn = Duel.Turn;
+		if (ok) { _ashUsedTurn = Duel.Turn; Say("ash", "诶～我正好抽到灰流丽了呢～♫"); }
 		return ok;
 	}
 
@@ -7620,7 +7718,12 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return false;
 		}
 
-		return UseNegate("幽鬼兔");
+		if (UseNegate("幽鬼兔"))
+		{
+			Say("rabbit", "诶～我正好抽到幽鬼兔了呢～♫");
+			return true;
+		}
+		return false;
 	}
 
 	// ===== 屋敷童（73642296）v5.91 =====
@@ -7676,6 +7779,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 			return false;
 		}
 		Log("手坑 屋敷童 → 无效「" + last.Name + "」的墓地相关效果");
+		Say("belle", "诶～我正好抽到屋敷童了呢～♫");
 		return true;
 	}
 
@@ -7821,6 +7925,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		// ★ v5.65：对方那只衍生物的攻守（= 被解放怪兽原本攻/守合计），选位按它俩比较
 		_nibiruTokenAtk = freedAtk;
 		_nibiruTokenDef = freedDef;
+		Say("nibiru", "诶～我正好抽到陨石了呢～♫");
 		Log("陨石 发动（对方本回合已召唤/特招 " + _enemySummonCount
 			+ " 只；对方表侧资源 " + enemyGain + " > 我方 " + ownLoss
 			+ "，净收益 +" + net + "）→ 解放双方表侧怪兽");
@@ -7965,6 +8070,7 @@ public class RaiseMoonExecutor : DefaultExecutor
 		}
 
 		if (!UseNegate("效果遮蒙者")) return false;
+		Say("veiler", "诶～我正好抽到丝袜了呢～♫");
 		_veilerTarget = last;                 // 目标锁死：就是刚发动效果的那只
 		return true;
 	}
