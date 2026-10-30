@@ -9,17 +9,15 @@ namespace WindBot.Game
     public class GameAI
     {
         public GameClient Game { get; private set; }
-        public Duel Duel { get; private set; }
-        public Executor Executor { get; set; }
 
         /// <summary>
-        /// True while the server is asking a yes/no activation question for an effect that just
-        /// triggered (MSG_SELECT_EFFECTYN); false for chain, idle command and battle queries.
-        /// A card can expose two effects with identical (or missing) descriptions - for example a
-        /// triggered "when drawn" effect and an ignition effect of the same card - so the kind of
-        /// question being asked is the only reliable way to tell them apart.
+        /// True while the core is asking "do you want to activate this effect" (MSG_SELECT_EFFECTYN).
+        /// Deck executors use it to tell a trigger effect apart from a QUICK_O fast effect printed on the
+        /// same card (Rabi's "draw 1" vs its "Xyz Summon during the opponent's turn" is the typical case).
         /// </summary>
         public bool SelectingEffectYn { get; private set; }
+        public Duel Duel { get; private set; }
+        public Executor Executor { get; set; }
 
         private Dialogs _dialogs;
 
@@ -279,7 +277,6 @@ namespace WindBot.Game
         {
             _pendingAttacker = null;
             _pendingAttackTarget = null;
-            SelectingEffectYn = false;
 
             foreach (CardExecutor exec in Executor.Executors)
             {
@@ -500,7 +497,6 @@ namespace WindBot.Game
         /// <returns>Index of the activated card or -1.</returns>
         public int OnSelectChain(IList<ClientCard> cards, IList<int> descs, IList<bool> forces, int timing = -1)
         {
-            SelectingEffectYn = false;
             Executor.OnSelectChain(cards);
             foreach (CardExecutor exec in Executor.Executors)
             {
@@ -582,12 +578,19 @@ namespace WindBot.Game
         public bool OnSelectEffectYn(ClientCard card, int desc)
         {
             SelectingEffectYn = true;
-            foreach (CardExecutor exec in Executor.Executors)
+            try
             {
-                if (ShouldExecute(exec, card, ExecutorType.Activate, desc))
-                    return true;
+                foreach (CardExecutor exec in Executor.Executors)
+                {
+                    if (ShouldExecute(exec, card, ExecutorType.Activate, desc))
+                        return true;
+                }
+                return false;
             }
-            return false;
+            finally
+            {
+                SelectingEffectYn = false;
+            }
         }
 
         /// <summary>
@@ -598,7 +601,6 @@ namespace WindBot.Game
         public MainPhaseAction OnSelectIdleCmd(MainPhase main)
         {
             _selectingPendulumSummon = false;
-            SelectingEffectYn = false;
             CheckSurrender();
             foreach (CardExecutor exec in Executor.Executors)
             {

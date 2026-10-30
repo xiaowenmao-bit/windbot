@@ -1,9 +1,8 @@
 # Changelog
 
 ## Current (latest)
+ - Add RaiseMoon deck (v2): 41-card build, side deck removed, stale card logic removed
 
- - New deck: RaiseMoon
- - Add `GameAI.SelectingEffectYn` to tell a triggered-effect confirmation apart from chain, idle-command and battle queries
  - New deck: Elfnote
  - Expand the known card enums and battle-target protection rules
  - Fix project configuration and SQLite library placement in Mono CI artifacts; publish Mono build artifacts
